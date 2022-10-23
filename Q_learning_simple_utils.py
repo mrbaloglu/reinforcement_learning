@@ -4,7 +4,8 @@ from tqdm import tqdm
 from typing import Tuple
 
 def initialize_q_table(num_states: int, num_actions: int) -> np.ndarray:
-    """_summary_
+    """
+    Initialize a Q-table to be used for storing state-action values.
 
     Args:
         num_states (int): Number of possible states in the environment.
