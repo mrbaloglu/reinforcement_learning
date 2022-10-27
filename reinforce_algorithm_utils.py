@@ -9,8 +9,6 @@ from collections import deque
 
 from typing import List
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}.")
 
 
 class Softmax_Policy_Dense_Layers(nn.Module):
@@ -26,16 +24,20 @@ class Softmax_Policy_Dense_Layers(nn.Module):
         """
         super(Softmax_Policy_Dense_Layers, self).__init__()
 
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}.")
         self.hidden_layers = []
         if len(hidden_layer_dims) > 0:
-            self.fc1 = nn.Linear(state_size, hidden_layer_dims[0])
+            self.fc1 = nn.Linear(state_size, hidden_layer_dims[0]).to(self.device)
             for ii in range(len(hidden_layer_dims) - 1):
-                hidden_layer = nn.Linear(hidden_layer_dims[ii], hidden_layer_dims[ii+1])
+                hidden_layer = nn.Linear(hidden_layer_dims[ii], hidden_layer_dims[ii+1]).to(self.device)
                 self.hidden_layers.append(hidden_layer)
-            out_layer = nn.Linear(hidden_layer_dims[-1], action_size)
+            out_layer = nn.Linear(hidden_layer_dims[-1], action_size).to(self.device)
             self.hidden_layers.append(out_layer)
         else: 
-            self.fc1 = nn.Linear(state_size, action_size)
+            self.fc1 = nn.Linear(state_size, action_size).to(self.device)
+
+        # self = self.to(self.device)
         
     def forward(self, x):
         if len(self.hidden_layers) > 0:
@@ -50,8 +52,8 @@ class Softmax_Policy_Dense_Layers(nn.Module):
         return x
     
     def act(self, state):
-        state = torch.from_numpy(state).float().unsqueeze(0).to(device)
-        probs = self.forward(state).cpu()
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        probs = self.forward(state)#.cpu()
         m = Categorical(probs)
         action = m.sample()
         return action.item(), m.log_prob(action)
