@@ -10,6 +10,7 @@ from keras.preprocessing import text, sequence
 from typing import Union
 from tqdm import tqdm
 from tqdm.notebook import  tqdm_notebook
+import pickle
 
 def preprocess_text(sen: str) -> list:
     """
@@ -47,7 +48,8 @@ def process_df_texts(data: pd.DataFrame, keys: list) -> pd.DataFrame:
 
 def tokenize_data(data: pd.DataFrame, keys: list,
                   create_new_column: bool = True,
-                  preprocess: bool = False) -> pd.DataFrame:
+                  preprocess: bool = False,
+                  tokenizer: text.Tokenizer = None) -> pd.DataFrame:
     """
     Function for tokenizing the textual input in a dataframe, given the columns.
     :param data: Dataframe containing the textual data to be tokenized.
@@ -62,12 +64,13 @@ def tokenize_data(data: pd.DataFrame, keys: list,
 
     if preprocess:
         data = process_df_texts(data, keys)
-
-    tokenizer = text.Tokenizer(lower=False)
+    if tokenizer == None:
+        tokenizer = text.Tokenizer(lower=False)
     if len(keys) == 1:
         tokenizer.fit_on_texts(data[keys[0]].values)
     else:
         tokenizer.fit_on_texts(data[keys])
+
     print(f"Vocabulary size: {len(tokenizer.word_index) + 1}.")
 
 
@@ -82,26 +85,117 @@ def tokenize_data(data: pd.DataFrame, keys: list,
             tokenized = tokenizer.texts_to_sequences(data[key])
             data[key] = tokenized
 
-    return data
+    return data, tokenizer
 
-def pad_tokenized_data(data: pd.DataFrame, keys: list) -> pd.DataFrame:
-    """
+def pad_tokenized_data(data: pd.DataFrame, keys: list, max_len: int = 0) -> pd.DataFrame:
+    """Pad the tokenized data samples with zeros.
 
-    :param data: Dataframe containing the tokenized sequences to be padded.
-    :param keys: List of tokenized columns of dataframe
-    :return: Dataframe with padded sequences.
+    Args:
+        data (pd.DataFrame): data to be padded
+        keys (list): columns with tokenized samples
+        max_len (int, optional): Length the resulting padded samples, 
+                                if 0 automatically calculated as maximum sentence length in given data. 
+                                Defaults to 0.
+
+    Returns:
+        pd.DataFrame: Dataframe with given columns padded.
     """
     if len(keys) == 1:
-        max_len = max(len(x) for x in data[keys[0]].values)
+        if max_len == 0:
+            max_len = max(len(x) for x in data[keys[0]].values)
         print(f"On column {keys}, maximum sentence length is {max_len}.")
         sq = sequence.pad_sequences(data[keys[0]], maxlen=max_len, padding="post")
         data[keys[0]] = [x for x in sq]
 
     else:
         for key in keys:
-            max_len = max(len(x) for x in data[key].values)
+            if max_len == 0:
+                max_len = max(len(x) for x in data[key].values)
             print(f"On column {key}, maximum sentence length is {max_len}.")
             sq = sequence.pad_sequences(data[key])
             data[key] = [x for x in sq]
 
+    return data, max_len
+
+def dataLabel2Str(data: pd.DataFrame, label_col: str, label_dict: dict) -> pd.DataFrame:
+    """Create a meaning column for each unique label.
+
+    Args:
+        data (pd.DataFrame): data.
+        label_col (str): label column.
+        label_dict (dict): dictionary for label descriptions.
+
+    Returns:
+        pd.DataFrame: new dataframe with added label meaning column (label_col_str).
+    """
+    data[label_col + "_str"] = data[label_col].apply(lambda x: str(label_dict[x]))
     return data
+
+def storeDf2Pickle(data: pd.DataFrame, path: str):
+    """Store the dataframe in a pickle file.
+
+    Args:
+        data (pd.DataFrame): Dataframe to be stored.
+        path (str): Path to the created pickle file. 
+    """
+    assert path.endswith(".pkl"), \
+        f"Given file path must end with .pkl, got {path}."
+    store_file = open(path, "ab")
+    pickle.dump(data, store_file)
+    store_file.close()
+
+def openDfFromPickle(path: str) -> pd.DataFrame:
+    """Open stored dataframes from pickle files.
+
+    Args:
+        path (str): File path.
+
+    Returns:
+        pd.DataFrame: Dataframe read.
+    """
+    assert path.endswith(".pkl"), \
+        f"Given file path must end with .pkl, got {path}."
+
+    file = open(path, "rb")
+    data = pickle.load(file)
+    file.close()
+    return data
+
+if __name__ == "__main__":
+    data_path = "/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning/NLP_datasets"
+    data = pd.read_csv(data_path + "/rt-polarity-train.csv")
+    data = dataLabel2Str(data, "label", {0: "bad", 1: "good"})
+    data, tokenizer = tokenize_data(data, ["review"], preprocess=True)
+    print("n_words_1: ", len(tokenizer.word_index) + 1)
+    data, max_len = pad_tokenized_data(data, ["review_tokenized"])
+    print("max_len_1: ", max_len)
+
+    data_val = pd.read_csv(data_path + "/rt-polarity-val.csv")
+    data_val = dataLabel2Str(data_val, "label", {0: "bad", 1: "good"})
+    data_val, tokenizer = tokenize_data(data_val, ["review"], preprocess=True, tokenizer=tokenizer)
+    print("n_words_2: ", len(tokenizer.word_index) + 1)
+    data_val, _ = pad_tokenized_data(data_val, ["review_tokenized"], max_len=max_len)
+
+    data_test = pd.read_csv(data_path + "/rt-polarity-test.csv")
+    data_test = dataLabel2Str(data_test, "label", {0: "bad", 1: "good"})
+    data_test, tokenizer = tokenize_data(data_test, ["review"], preprocess=True, tokenizer=tokenizer)
+    print("n_words_2: ", len(tokenizer.word_index) + 1)
+    data_test, _ = pad_tokenized_data(data_test, ["review_tokenized"], max_len=max_len)
+    print(np.stack(data_test["review_tokenized"].values).shape) 
+   
+    # save the processed data in pickle files
+
+    storeDf2Pickle(data, data_path + "/rt-polarity-train.pkl")
+    storeDf2Pickle(data_val, data_path + "/rt-polarity-val.pkl")
+    storeDf2Pickle(data_test, data_path + "/rt-polarity-test.pkl")
+    
+    data_test = openDfFromPickle(data_path + "/rt-polarity-test.pkl")
+    print(data_test.sample(5))
+    samples = np.stack(data_test["review_tokenized"].values)
+    print(samples.shape)
+    ss = []
+    for j in range(samples.shape[0]):
+        ss.append(np.split(samples[j], 2))
+    
+    print(len(ss), len(ss[0]))
+    print(ss[0][0].shape)
