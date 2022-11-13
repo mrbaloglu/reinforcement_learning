@@ -1,2 +1,2 @@
 # basic_reinforcement_learning
-Basic reinforcement learning applications in python.
+Reinforcement learning applications in python with addition of text classification task. 
