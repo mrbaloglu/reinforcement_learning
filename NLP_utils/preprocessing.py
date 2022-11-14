@@ -7,10 +7,12 @@ import pandas as pd
 import re
 from tqdm.notebook import tqdm_notebook
 from keras.preprocessing import text, sequence
-from typing import Union
+from typing import Union, List
 from tqdm import tqdm
 from tqdm.notebook import  tqdm_notebook
 import pickle
+import json
+import transformers
 
 def preprocess_text(sen: str) -> list:
     """
@@ -140,7 +142,7 @@ def storeDf2Pickle(data: pd.DataFrame, path: str):
     """
     assert path.endswith(".pkl"), \
         f"Given file path must end with .pkl, got {path}."
-    store_file = open(path, "ab")
+    store_file = open(path, "wb")
     pickle.dump(data, store_file)
     store_file.close()
 
@@ -161,23 +163,47 @@ def openDfFromPickle(path: str) -> pd.DataFrame:
     file.close()
     return data
 
+def bert_tokenize_data(data: pd.DataFrame, tokenizer, keys: List[str], max_len: int = 512, preprocess: bool = False) -> pd.DataFrame:
+    if preprocess:
+        data = process_df_texts(data, keys)
+    
+    if tokenizer == None:
+        tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-cased")
+    
+    for key in keys:
+        tqdm.pandas(desc=f"Applying bert-tokenization on {key}.")
+        data["tmp"] = data[key].progress_apply(lambda x: tokenizer(x, padding='max_length', max_length = max_len, truncation=True, return_tensors="np"))
+        data[key + "_bert_input_ids"] = data["tmp"].apply(lambda x: x["input_ids"][0]) 
+        data[key + "_bert_token_type_ids"] = data["tmp"].apply(lambda x: x["token_type_ids"][0])
+        data[key + "_bert_attention_mask"] = data["tmp"].apply(lambda x: x["attention_mask"][0])
+        data = data.drop("tmp", axis=1)
+    
+    return data, tokenizer
+
+
+
 if __name__ == "__main__":
-    data_path = "/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning/NLP_datasets"
+    data_path = "/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning/NLP_datasets/RT_Polarity"
     data = pd.read_csv(data_path + "/rt-polarity-train.csv")
     data = dataLabel2Str(data, "label", {0: "bad", 1: "good"})
+    print(data.columns)
+    data_val = pd.read_csv(data_path + "/rt-polarity-val.csv")
+    data_val = dataLabel2Str(data_val, "label", {0: "bad", 1: "good"})
+    data_test = pd.read_csv(data_path + "/rt-polarity-test.csv")
+    data_test = dataLabel2Str(data_test, "label", {0: "bad", 1: "good"})
+    ########## process with default tokenizer ######################
+    """
     data, tokenizer = tokenize_data(data, ["review"], preprocess=True)
     print("n_words_1: ", len(tokenizer.word_index) + 1)
     data, max_len = pad_tokenized_data(data, ["review_tokenized"])
     print("max_len_1: ", max_len)
 
-    data_val = pd.read_csv(data_path + "/rt-polarity-val.csv")
-    data_val = dataLabel2Str(data_val, "label", {0: "bad", 1: "good"})
+    
     data_val, tokenizer = tokenize_data(data_val, ["review"], preprocess=True, tokenizer=tokenizer)
     print("n_words_2: ", len(tokenizer.word_index) + 1)
     data_val, _ = pad_tokenized_data(data_val, ["review_tokenized"], max_len=max_len)
 
-    data_test = pd.read_csv(data_path + "/rt-polarity-test.csv")
-    data_test = dataLabel2Str(data_test, "label", {0: "bad", 1: "good"})
+    
     data_test, tokenizer = tokenize_data(data_test, ["review"], preprocess=True, tokenizer=tokenizer)
     print("n_words_2: ", len(tokenizer.word_index) + 1)
     data_test, _ = pad_tokenized_data(data_test, ["review_tokenized"], max_len=max_len)
@@ -188,6 +214,10 @@ if __name__ == "__main__":
     storeDf2Pickle(data, data_path + "/rt-polarity-train.pkl")
     storeDf2Pickle(data_val, data_path + "/rt-polarity-val.pkl")
     storeDf2Pickle(data_test, data_path + "/rt-polarity-test.pkl")
+
+    data_info = {"path": data_path, "max_len": max_len, "vocab_size": len(tokenizer.word_index) + 1}
+    with open(data_path + "/data_info.json", "w") as out:
+        json.dump(data_info, out)
     
     data_test = openDfFromPickle(data_path + "/rt-polarity-test.pkl")
     print(data_test.sample(5))
@@ -198,4 +228,34 @@ if __name__ == "__main__":
         ss.append(np.split(samples[j], 2))
     
     print(len(ss), len(ss[0]))
-    print(ss[0][0].shape)
+    print(ss[0][0].shape)"""
+    ############################################################################
+    
+    ################# process with pretrained bert tokenizer ###################
+    data = process_df_texts(data, ["review"])
+    data_val = process_df_texts(data_val, ["review"])
+    data_test = process_df_texts(data_test, ["review"])
+    max_len = max(len(x.split(" "))-1 for x in data["review"].values)
+    print(max_len)
+    data, tokenizer = bert_tokenize_data(data, None, ["review"], max_len=max_len)
+    data_val, tokenizer = bert_tokenize_data(data_val, tokenizer, ["review"], max_len=max_len)
+    data_test, tokenizer = bert_tokenize_data(data_test, tokenizer, ["review"], max_len=max_len)
+
+    data_info_bert = {"path": data_path, "max_len": max_len, "vocab_size": tokenizer.vocab_size}
+    with open(data_path + "/data_info_bert.json", "w") as out:
+        json.dump(data_info_bert, out)
+
+    print(data.columns)
+
+    storeDf2Pickle(data, data_path + "/rt-polarity-train-bert.pkl")
+    storeDf2Pickle(data_val, data_path + "/rt-polarity-val-bert.pkl")
+    storeDf2Pickle(data_test, data_path + "/rt-polarity-test-bert.pkl")
+
+    data = openDfFromPickle(data_path + "/rt-polarity-train-bert.pkl")
+    print(data.columns)
+    # print(data.head())
+    # dd = data.iloc[0,:]
+    # print(dd)
+    # print(data["review_bert_input_ids"].iloc[0])
+    # print(tokenizer.decode(data["review_bert_input_ids"].iloc[0]))
+

@@ -3,12 +3,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
+from tqdm import tqdm
 
 import numpy as np
 from collections import deque
 
 from typing import List, Union
-
+from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
 
 
 class Softmax_Policy_Dense_Layers(nn.Module):
@@ -59,101 +60,16 @@ class Softmax_Policy_Dense_Layers(nn.Module):
         action = m.sample()
         return action.item(), m.log_prob(action)
 
-class RNN_Baseline_Policy(nn.Module):
-    def __init__(self,
-                 vocab_size: int,
-                 input_dim: int,
-                 out_num_classes: int,
-                 embed_dim: int = 5,
-                 rnn_type: str = "gru",
-                 rnn_hidden_size: int = 2,
-                 rnn_hidden_out: int = 2,
-                 rnn_bidirectional: bool = True,
-                 units: int = 50):
-        """
-        RNN Class for text classification with RL.
-        Arguments:
-            vocab_size -- specifies the size of the vocabulary to be used in word embeddings.
-            input_dim -- specifies the dimension of the features (n_samples, max_sentence_length (input_dim)).
-            output_dim -- specifies the number of possible actions for the agent. 
-
-        Keyword Arguments:
-            embed_dim -- embed_dim specifies the embedding dimension for the categorical part of the input. (default: {5})
-            rnn_type -- specifies the type of the recurrent layer for word embeddings. (default: {"gru"})
-            rnn_hidden_size -- specifies the number of stacked recurrent layers. (default: {2})
-            rnn_hidden_out -- specifies number of features in the hidden state h of recurrent layer. (default: {2})
-            rnn_bidirectional -- specifies whether the recurrent layers be bidirectional. (default: {True})
-            units -- specifies the number of neurons in the hidden layers. (default: {50})
-
-        """
-        super(RNN_Baseline_Policy, self).__init__()
-
-        self.embed_dim = embed_dim
-        self.out_num_classes = out_num_classes
-
-        self.embed_enc = nn.Embedding(vocab_size, embed_dim, max_norm=True)
-        self.rnn = nn.GRU(embed_dim, rnn_hidden_out, rnn_hidden_size,
-                          bidirectional=rnn_bidirectional, batch_first=True)
-        if rnn_type == "lstm":
-            self.rnn = nn.LSTM(embed_dim, rnn_hidden_out, rnn_hidden_size,
-                               bidirectional=rnn_bidirectional, batch_first=True)
-        elif rnn_type != "gru":
-            raise ValueError("The argument rnn_type must be 'gru' or 'lstm'!")
-
-        rnn_out_dim = rnn_hidden_out * input_dim
-        if rnn_bidirectional:
-            rnn_out_dim *= 2
-
-        self.flat = nn.Flatten()
-        self.fc1 = nn.Linear(rnn_out_dim, units)
-        self.fc2 = nn.Linear(units, units)
-        self.fc3 = nn.Linear(units, out_num_classes)
-
-    def forward(self, x: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
-        """
-        Model prediction function.
-
-        Args:
-            x (Union[np.ndarray, torch.Tensor]): data
-
-        Returns:
-            torch.Tensor: predictions.
-        """
-
-        # type check
-        if type(x) != torch.Tensor:
-            x = torch.Tensor(x)
-
-        # reshape when there is only one sample
-        if len(x.shape) == 1:
-            x = torch.unsqueeze(x, 0)
-        
-        x_c = self.embed_enc(x.int())
-        x_c, _ = self.rnn(x_c)
-        x_c = self.flat(x_c)
-
-        x = F.relu(self.fc1(x_c))
-        x = F.relu(self.fc2(x))
-        x = torch.softmax(self.fc3(x), dim=1)
-
-        return x
-    
-    def act(self, state):
-        if type(state) != torch.Tensor:
-            state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
-        probs = self.forward(state)#.cpu()
-        m = Categorical(probs)
-        action = m.sample()
-        return action.item(), m.log_prob(action)
-
 
 
 def reinforce_algorithm(env, policy, optimizer, n_training_episodes, max_t, gamma, print_every):
     # Help us to calculate the score during the training
     scores_deque = deque(maxlen=100)
     scores = []
+    avg_reward = 0.
     # Line 3 of pseudocode
-    for i_episode in range(1, n_training_episodes+1):
+    pbar = tqdm(range(n_training_episodes))
+    for i_episode in pbar:
         saved_log_probs = []
         rewards = []
         state = env.reset()
@@ -184,13 +100,16 @@ def reinforce_algorithm(env, policy, optimizer, n_training_episodes, max_t, gamm
         optimizer.zero_grad()
         policy_loss.backward()
         optimizer.step()
-        
-        if i_episode % print_every == 0:
-            print('Episode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_deque)))
+        f1 = f1_score(env.target_history, env.prediction_history, pos_label="good")
+        acc = accuracy_score(env.target_history, env.prediction_history)
+
+        pbar.set_description(f"F1 Score: {f1:.2f}, accuracy: {acc:.2f} \t Average Score: {np.mean(scores_deque):.2f}")
+            
         
     return scores
 
 def evaluate_agent(env, max_steps, n_eval_episodes, policy):
+
     """
     Evaluate the agent for ``n_eval_episodes`` episodes and returns average reward and std of reward.
     :param env: The evaluation environment
@@ -219,3 +138,24 @@ def evaluate_agent(env, max_steps, n_eval_episodes, policy):
     std_reward = np.std(episode_rewards)
 
     return mean_reward, std_reward
+
+def evaluate_on_clf(env, policy, pos_label: str = None):
+    cnt = 0
+    state = env.reset()
+    while cnt < env.pool.n_samples:
+        action, _ = policy.act(state)
+        new_state, reward, done, info = env.step(action)
+        if info["action"] not in ["<previous>", "<next>"]:
+            cnt += 1
+            print(f"Sample no: {cnt}", end="\r", flush=True)
+        
+        state = new_state
+    
+    preds = env.get_prediction_history()
+    targets = env.get_target_history()
+    acc = accuracy_score(targets, preds)
+    f1 = f1_score(targets, preds, pos_label=pos_label)
+    prec = precision_score(targets, preds, pos_label=pos_label)
+    rec = recall_score(targets, preds, pos_label=pos_label)
+
+    return acc, f1, prec, rec

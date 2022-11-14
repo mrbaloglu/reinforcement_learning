@@ -1,19 +1,15 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions import Categorical
+
 import numpy as np
 from typing import Union
 from torchtext.vocab import GloVe
 import transformers
 
-def create_emb_layer(weights_matrix, freeze = True):
-    num_embeddings, embedding_dim = weights_matrix.shape[0], weights_matrix.shape[1]
-    emb_layer = nn.Embedding.from_pretrained(torch.Tensor(weights_matrix), freeze = freeze, sparse = True)
-    #emb_layer.load_state_dict({'weight': weights_matrix})
 
-    return emb_layer, num_embeddings, embedding_dim
- 
-class RNN_Baseline_Classifier(nn.Module):
+class RNN_Baseline_Policy(nn.Module):
     def __init__(self,
                  vocab_size: int,
                  input_dim: int,
@@ -23,14 +19,14 @@ class RNN_Baseline_Classifier(nn.Module):
                  rnn_hidden_size: int = 2,
                  rnn_hidden_out: int = 2,
                  rnn_bidirectional: bool = True,
-                 units: int = 50):
+                 units: int = 50, 
+                 device: torch.device = torch.device("cpu")):
         """
-        RNN Class for text classification.
+        RNN Class for text classification with RL.
         Arguments:
             vocab_size -- specifies the size of the vocabulary to be used in word embeddings.
             input_dim -- specifies the dimension of the features (n_samples, max_sentence_length (input_dim)).
-            out_num_classes -- specifies the number of classes for the output. 
-            (for binary classification this argument must be 2)
+            output_dim -- specifies the number of possible actions for the agent. 
 
         Keyword Arguments:
             embed_dim -- embed_dim specifies the embedding dimension for the categorical part of the input. (default: {5})
@@ -41,10 +37,11 @@ class RNN_Baseline_Classifier(nn.Module):
             units -- specifies the number of neurons in the hidden layers. (default: {50})
 
         """
-        super(RNN_Baseline_Classifier, self).__init__()
+        super(RNN_Baseline_Policy, self).__init__()
 
         self.embed_dim = embed_dim
         self.out_num_classes = out_num_classes
+        self.device = device
 
         self.embed_enc = nn.Embedding(vocab_size, embed_dim, max_norm=True)
         self.rnn = nn.GRU(embed_dim, rnn_hidden_out, rnn_hidden_size,
@@ -62,10 +59,7 @@ class RNN_Baseline_Classifier(nn.Module):
         self.flat = nn.Flatten()
         self.fc1 = nn.Linear(rnn_out_dim, units)
         self.fc2 = nn.Linear(units, units)
-        if self.out_num_classes == 2:
-            self.fc3 = nn.Linear(units, 1)
-        else:
-            self.fc3 = nn.Linear(units, out_num_classes)
+        self.fc3 = nn.Linear(units, out_num_classes)
 
     def forward(self, x: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """
@@ -92,15 +86,22 @@ class RNN_Baseline_Classifier(nn.Module):
 
         x = F.relu(self.fc1(x_c))
         x = F.relu(self.fc2(x))
-        if self.out_num_classes == 2:
-            x = torch.sigmoid(self.fc3(x))
-        else:
-            x = torch.softmax(self.fc3(x))
+        x = torch.softmax(self.fc3(x), dim=1)
 
         return x
+    
+    def act(self, state):
+        if type(state) != torch.Tensor:
+            state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        probs = self.forward(state)#.cpu()
+        m = Categorical(probs)
+        action = m.sample()
+        return action.item(), m.log_prob(action)
 
 
-class Transformer_Baseline_Classifier(nn.Module):
+
+
+class Transformer_Baseline_Policy(nn.Module):
 
     def __init__(self,
                  vocab_size: int,
@@ -110,7 +111,8 @@ class Transformer_Baseline_Classifier(nn.Module):
                  num_layers: int,
                  pretrained: str = "None",
                  freeze_emb: bool = True,
-                 embed_dim: int = 5):
+                 embed_dim: int = 5,
+                 device: torch.device = torch.device("cpu")):
         """
         A classifier template with transformer encoder layers.
 
@@ -129,7 +131,8 @@ class Transformer_Baseline_Classifier(nn.Module):
             ValueError: For incorrectly given argument pretrained
         """
         
-        super(Transformer_Baseline_Classifier, self).__init__()
+        super(Transformer_Baseline_Policy, self).__init__()
+        self.device = device
         self.embed_dim = embed_dim
         self.out_dim = out_num_classes
         self.trns_out_dim = embed_dim * input_dim
@@ -159,10 +162,7 @@ class Transformer_Baseline_Classifier(nn.Module):
         trans_enc_layer = nn.TransformerEncoderLayer(d_model = embed_dim, nhead = num_heads, batch_first=True)
         self.transformer = nn.TransformerEncoder(trans_enc_layer, num_layers=num_layers)
 
-        if self.out_dim == 2:
-            self.fc1 = nn.Linear(self.trns_out_dim, 1) # binary classfication
-        else:
-            self.fc1 = nn.Linear(self.trns_out_dim, out_num_classes)
+        self.fc1 = nn.Linear(self.trns_out_dim, out_num_classes)
 
         self.flatten = nn.Flatten()
 
@@ -191,13 +191,17 @@ class Transformer_Baseline_Classifier(nn.Module):
         #print(x.shape)
         #print(cn, hn.shape, 2)
         x = self.flatten(x)
-
-        if self.out_dim == 2:
-            x = torch.sigmoid(self.fc1(x))
-        else:
-            x = torch.softmax(self.fc1(x))
+        x = torch.softmax(self.fc1(x), dim=1)
 
         return x
+    
+    def act(self, state):
+        if type(state) != torch.Tensor:
+            state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        probs = self.forward(state)#.cpu()
+        m = Categorical(probs)
+        action = m.sample()
+        return action.item(), m.log_prob(action)
 
     def embout(self, x):
         return self.embedding(x)
@@ -211,24 +215,31 @@ class Transformer_Baseline_Classifier(nn.Module):
             if(cnt == index):
               break
 
+class BERT_Baseline_Policy(nn.Module):
 
-class BERT_Baseline_Classifier(nn.Module):
+    def __init__(self, output_dim, dropout: float = 0.5, device: torch.device = torch.device("cpu")):
 
-    def __init__(self, dropout: float = 0.5):
-
-        super(BERT_Baseline_Classifier, self).__init__()
-
+        super(BERT_Baseline_Policy, self).__init__()
+        self.device = device
         self.bert = transformers.BertModel.from_pretrained('bert-base-cased')
         self.dropout = nn.Dropout(dropout)
-        self.linear = nn.Linear(768, 1)
+        self.linear = nn.Linear(768, output_dim)
 
     def forward(self, input_id, mask):
         
         _, pooled_output = self.bert(input_ids=input_id, attention_mask=mask,return_dict=False)
         dropout_output = self.dropout(pooled_output)
         linear_output = self.linear(dropout_output)
-        final_layer = torch.sigmoid(linear_output)
+        final_layer = torch.softmax(linear_output)
 
         return final_layer
     
-    
+    def act(self, state):
+        if type(state) != torch.Tensor:
+            state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        probs = self.forward(state)#.cpu()
+        m = Categorical(probs)
+        action = m.sample()
+        return action.item(), m.log_prob(action)
+
+        
