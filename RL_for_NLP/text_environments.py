@@ -170,7 +170,7 @@ class TextEnvClfBert(gym.Env):
         
         action_list = copy.deepcopy(self.pool.possible_actions)
         action_list.append("<next>")
-        action_list.append("<previous>")
+        # action_list.append("<previous>")
         self.action_space = ActionSpace(action_list)
         self.action_history = []
         self.prediction_history = []

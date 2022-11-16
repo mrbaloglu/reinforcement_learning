@@ -78,8 +78,7 @@ class PartialReadingRewardFunctionAccuracy:
         """
 
             reward = int(action == target)
-            reward -= int(reward == 0)*2
             return reward
         # give negative feedback when reread, previous or next, here curiosity may be applied
         else:
-            return 0# -1e-2*(np.log2(exploration_discount))
+            return -0.1*(np.log2(exploration_discount))

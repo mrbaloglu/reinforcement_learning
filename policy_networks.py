@@ -318,7 +318,8 @@ class CNN1DExtractor(BaseFeaturesExtractor):
         self.n_filter_list = [self.embed_dim]
         self.n_filter_list.extend(n_filter_list)
         for ii in range(len(self.n_filter_list) - 1):
-            self.conv_layers.append(nn.Conv1d(self.n_filter_list[ii], self.n_filter_list[ii+1], self.kernel_size, stride=1))
+            self.conv_layers.append(nn.Conv1d(self.n_filter_list[ii], self.n_filter_list[ii+1], 
+                                            self.kernel_size, stride=1, padding="same"))
 
         
         self.flatten = nn.Flatten()
@@ -330,8 +331,10 @@ class CNN1DExtractor(BaseFeaturesExtractor):
             dummy_data = torch.arange(1, observation_space.shape[0]+1).int().unsqueeze(0)
             dummy_data = self.embedding(dummy_data)
             dummy_data = torch.swapaxes(dummy_data, 1, 2)
+            print(dummy_data.shape)
             for layer in self.conv_layers:
                 dummy_data = layer(dummy_data)
+                print(dummy_data.shape)
             
             dummy_data = self.flatten(dummy_data)
             self.conv_out_dim = dummy_data.shape[1]

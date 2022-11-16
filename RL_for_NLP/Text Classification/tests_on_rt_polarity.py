@@ -68,7 +68,6 @@ def eval_model(model, env):
         total_reward += rewards
     print("---------------------------------------------")
     print(f"Predicted Label {actions}")
-    print(f"Oracle Label: {env.current_label}")
     print(f"Total Reward: {total_reward}")
     print(f"F1 Score: {f1_score(env.get_target_history(), env.get_prediction_history(), pos_label=env.pool.pos_label)}")
     print(f"Accuracy: {accuracy_score(env.get_target_history(), env.get_prediction_history())}")
@@ -77,7 +76,8 @@ def eval_model(model, env):
 
 policy_kwargs = dict(
     features_extractor_class=pn.CNN1DExtractor,
-    features_extractor_kwargs=dict(vocab_size = VOCAB_SIZE, n_filter_list = [128, 64], kernel_size = 2, features_dim = 256),
+    features_extractor_kwargs=dict(vocab_size = VOCAB_SIZE, embed_dim = 50, 
+                                n_filter_list = [128, 64, 64, 32, 32, 16], kernel_size = 4, features_dim = 256),
 )
 # model = DQN("CnnPolicy", train_env, policy_kwargs=policy_kwargs, verbose=1, batch_size=64)
 model = A2C(policy = "CnnPolicy",
@@ -86,16 +86,17 @@ model = A2C(policy = "CnnPolicy",
             gamma = 0.99,
             learning_rate = 0.001,
             max_grad_norm = 0.5,
-            n_steps = 8,
+            n_steps = 20,
             vf_coef = 0.4,
             ent_coef = 0.0,
             policy_kwargs=policy_kwargs,
             normalize_advantage=False,
-            verbose=0)
+            verbose=0, 
+            use_rms_prop=False)
 
 
 for i in range(int(5)):
-    model.learn(total_timesteps=int(1e+4)*5, reset_num_timesteps=False, progress_bar=True)
+    model.learn(total_timesteps=int(1e+4)*5, reset_num_timesteps=True, progress_bar=True)
     eval_model(model, val_env)
 
 
