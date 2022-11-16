@@ -18,14 +18,21 @@ from NLP_utils import pytorch_datasets as nlp_datasets
 from torch.utils.data import Dataset, DataLoader
 from RL_for_NLP.text_data_pools import PartialReadingDataPoolWithWord2Vec, PartialReadingDataPoolWithBertTokens
 from RL_for_NLP.text_action_space import ActionSpace
-from RL_for_NLP.text_reward_functions import PartialReadingRewardFunctionF1
+from RL_for_NLP.text_reward_functions import PartialReadingRewardFunctionF1, PartialReadingRewardFunctionAccuracy
 from RL_for_NLP.observation import Observation
 
 
 class TextEnvClf(gym.Env):
     
-    def __init__(self, data_pool: PartialReadingDataPoolWithWord2Vec, max_time_steps: int, random_walk: bool = False):
+    def __init__(self, 
+                data_pool: PartialReadingDataPoolWithWord2Vec, 
+                max_time_steps: int, 
+                reward_fn: str = "f1",
+                random_walk: bool = False):
         super().__init__()
+        assert reward_fn in ["f1", "accuracy", "precision", "recall"], \
+            f"Reward functions needs to be one of 'f1', 'accuracy', 'precision', 'recall', got {reward_fn}."
+
         self.time_step = 0
         self.pool = data_pool
         self.random_walk = random_walk
@@ -52,7 +59,13 @@ class TextEnvClf(gym.Env):
         
         self.max_time_steps = max_time_steps
 
-        self.reward_function = PartialReadingRewardFunctionF1(self.pool.pos_label, self.pool.possible_actions)
+        if reward_fn == "f1":
+            self.reward_function = PartialReadingRewardFunctionF1(self.pool.pos_label, self.pool.possible_actions)
+        elif reward_fn == "accuracy":
+            self.reward_function = PartialReadingRewardFunctionAccuracy(self.pool.possible_actions)
+        else:
+            raise NotImplementedError
+
         self._set_spaces()
 
 
@@ -96,7 +109,7 @@ class TextEnvClf(gym.Env):
 
     def reset(self):
         if self.current_sample_ix != None:
-            self.current_sample_ix = 0
+            self.current_sample_ix += 1
 
         self.current_observation = self.pool.create_episode(self.current_sample_ix)
         self.current_vecs = self.current_observation.get_sample_vecs()
@@ -125,8 +138,16 @@ class TextEnvClf(gym.Env):
 
 class TextEnvClfBert(gym.Env):
     
-    def __init__(self, data_pool: PartialReadingDataPoolWithBertTokens, max_time_steps: int, random_walk: bool = False):
+    def __init__(self, 
+                data_pool: PartialReadingDataPoolWithBertTokens,
+                 max_time_steps: int, 
+                 reward_fn: str = "f1",
+                 random_walk: bool = False):
         super().__init__()
+
+        assert reward_fn in ["f1", "accuracy", "precision", "recall"], \
+            f"Reward functions needs to be one of 'f1', 'accuracy', 'precision', 'recall', got {reward_fn}."
+
         self.time_step = 0
         self.pool = data_pool
         self.random_walk = random_walk
@@ -158,7 +179,12 @@ class TextEnvClfBert(gym.Env):
         
         self.max_time_steps = max_time_steps
 
-        self.reward_function = PartialReadingRewardFunctionF1(self.pool.pos_label, self.pool.possible_actions)
+        if reward_fn == "f1":
+            self.reward_function = PartialReadingRewardFunctionF1(self.pool.pos_label, self.pool.possible_actions)
+        elif reward_fn == "accuracy":
+            self.reward_function = PartialReadingRewardFunctionAccuracy(self.pool.possible_actions)
+        else:
+            raise NotImplementedError
         self._set_spaces()
 
 
@@ -206,7 +232,7 @@ class TextEnvClfBert(gym.Env):
 
     def reset(self):
         if self.current_sample_ix != None:
-            self.current_sample_ix = 0
+            self.current_sample_ix += 1
 
         self.current_observation = self.pool.create_episode(self.current_sample_ix)
         self.current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()

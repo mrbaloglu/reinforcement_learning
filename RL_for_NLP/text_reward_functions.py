@@ -24,13 +24,6 @@ class PartialReadingRewardFunctionF1:
             current_targets = copy.deepcopy(prev_targets)
             current_targets.append(target)
 
-            # remove "next", "reread", "previous" to compute reward
-            if "<next>" in current_pred_history:
-                current_pred_history.remove("<next>")
-            # if "<reread>" in current_pred_history:
-            #     current_pred_history.remove("<reread>")
-            if "<previous>" in current_pred_history:
-                current_pred_history.remove("<previous>")
             
             # step reward as change in the scores
             # as good actions lead to increase in the scores
@@ -51,4 +44,42 @@ class PartialReadingRewardFunctionF1:
             return reward
         # give negative feedback when reread, previous or next, here curiosity may be applied
         else:
-            return -1e-2*(np.log2(exploration_discount))
+            return 0#-1e-2*(np.log2(exploration_discount))
+
+class PartialReadingRewardFunctionAccuracy:
+    """
+    Computes accuracy score between predicted and target labels
+    It is a step-wise reward function
+    Reward at time step t = score(t) - score(t-1)
+    """
+    def __init__(self, label_list: List[str]):
+        self.label_list = label_list
+
+    def __call__(self, action: str, target: str, prediction_history: List[str], prev_targets: List[str], exploration_discount: float = 0.) -> float:
+
+        if action in self.label_list:
+            """# get current action sequence
+            current_pred_history = copy.deepcopy(prediction_history)
+            current_pred_history.append(action)
+
+            current_targets = copy.deepcopy(prev_targets)
+            current_targets.append(target)
+
+            
+            # step reward as change in the scores
+            # as good actions lead to increase in the scores
+            
+            previous_score = 0.
+            if len(prev_targets) > 0:
+                previous_score = accuracy_score(prev_targets, prediction_history)
+           
+            current_score = accuracy_score(current_targets, current_pred_history)
+            reward = current_score - previous_score
+        """
+
+            reward = int(action == target)
+            reward -= int(reward == 0)*2
+            return reward
+        # give negative feedback when reread, previous or next, here curiosity may be applied
+        else:
+            return 0# -1e-2*(np.log2(exploration_discount))

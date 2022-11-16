@@ -1,68 +1,15 @@
-from turtle import forward
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.distributions import Categorical
 from tqdm import tqdm
 
 import numpy as np
 from collections import deque
 
-from typing import List, Union
+from typing import List
 from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
 
 
-class Softmax_Policy_Dense_Layers(nn.Module):
 
-    def __init__(self, state_size: int, action_size: int, hidden_layer_dims: List[int]):
-        """
-        Initialize a policy with softmax probabilities, estimated with a fully-connected neural network.
-
-        Args:
-            state_size (int): Size of the states.
-            action_size (int): Size of the actions.
-            hidden_layer_dims (List[int]): List of units in hidden layers. 
-        """
-        super(Softmax_Policy_Dense_Layers, self).__init__()
-
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        print(f"Using device: {self.device}.")
-        self.hidden_layers = []
-        if len(hidden_layer_dims) > 0:
-            self.fc1 = nn.Linear(state_size, hidden_layer_dims[0]).to(self.device)
-            for ii in range(len(hidden_layer_dims) - 1):
-                hidden_layer = nn.Linear(hidden_layer_dims[ii], hidden_layer_dims[ii+1]).to(self.device)
-                self.hidden_layers.append(hidden_layer)
-            out_layer = nn.Linear(hidden_layer_dims[-1], action_size).to(self.device)
-            self.hidden_layers.append(out_layer)
-        else: 
-            self.fc1 = nn.Linear(state_size, action_size).to(self.device)
-
-        # self = self.to(self.device)
-        
-    def forward(self, x):
-        if len(self.hidden_layers) > 0:
-            x = F.relu(self.fc1(x))
-            for layer_ix in range(len(self.hidden_layers)-1):
-                x = F.relu(self.hidden_layers[layer_ix](x))
-            
-            x = F.softmax(self.hidden_layers[-1](x), dim=1)
-        else:
-            x = F.softmax(self.fc1(x), dim=1)
-        
-        return x
-    
-    def act(self, state):
-        if type(state) != torch.Tensor:
-            state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
-        probs = self.forward(state)#.cpu()
-        m = Categorical(probs)
-        action = m.sample()
-        return action.item(), m.log_prob(action)
-
-
-
-def reinforce_algorithm(env, policy, optimizer, n_training_episodes, max_t, gamma, print_every):
+def reinforce_algorithm(env, policy, optimizer, n_training_episodes, max_t, gamma):
     # Help us to calculate the score during the training
     scores_deque = deque(maxlen=100)
     scores = []
@@ -75,7 +22,7 @@ def reinforce_algorithm(env, policy, optimizer, n_training_episodes, max_t, gamm
         state = env.reset()
         # Line 4 of pseudocode
         for t in range(max_t):
-            action, log_prob = policy.act(state)
+            action, log_prob = policy.predict(state)
             saved_log_probs.append(log_prob)
             state, reward, done, _ = env.step(action)
             rewards.append(reward)
@@ -124,7 +71,7 @@ def evaluate_agent(env, max_steps, n_eval_episodes, policy):
         total_rewards_ep = 0
     
         for step in range(max_steps):
-            action, _ = policy.act(state)
+            action, _ = policy.predict(state)
             new_state, reward, done, info = env.step(action)
             total_rewards_ep += reward
             
@@ -143,7 +90,7 @@ def evaluate_on_clf(env, policy, pos_label: str = None):
     cnt = 0
     state = env.reset()
     while cnt < env.pool.n_samples:
-        action, _ = policy.act(state)
+        action, _ = policy.predict(state)
         new_state, reward, done, info = env.step(action)
         if info["action"] not in ["<previous>", "<next>"]:
             cnt += 1

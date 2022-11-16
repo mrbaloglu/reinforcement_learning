@@ -4,9 +4,59 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 
 import numpy as np
-from typing import Union
+from typing import Union, List
 from torchtext.vocab import GloVe
 import transformers
+import gym
+
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+
+
+class Softmax_Policy_Dense_Layers(nn.Module):
+
+    def __init__(self, state_size: int, action_size: int, hidden_layer_dims: List[int]):
+        """
+        Initialize a policy with softmax probabilities, estimated with a fully-connected neural network.
+
+        Args:
+            state_size (int): Size of the states.
+            action_size (int): Size of the actions.
+            hidden_layer_dims (List[int]): List of units in hidden layers. 
+        """
+        super(Softmax_Policy_Dense_Layers, self).__init__()
+
+        self.hidden_layers = []
+        if len(hidden_layer_dims) > 0:
+            self.fc1 = nn.Linear(state_size, hidden_layer_dims[0])
+            for ii in range(len(hidden_layer_dims) - 1):
+                hidden_layer = nn.Linear(hidden_layer_dims[ii], hidden_layer_dims[ii+1])
+                self.hidden_layers.append(hidden_layer)
+            out_layer = nn.Linear(hidden_layer_dims[-1], action_size)
+            self.hidden_layers.append(out_layer)
+        else: 
+            self.fc1 = nn.Linear(state_size, action_size)
+
+       
+        
+    def forward(self, x):
+        if len(self.hidden_layers) > 0:
+            x = F.relu(self.fc1(x))
+            for layer_ix in range(len(self.hidden_layers)-1):
+                x = F.relu(self.hidden_layers[layer_ix](x))
+            
+            x = F.softmax(self.hidden_layers[-1](x), dim=1)
+        else:
+            x = F.softmax(self.fc1(x), dim=1)
+        
+        return x
+    
+    def predict(self, state):
+        if type(state) != torch.Tensor:
+            state = torch.from_numpy(state).float().unsqueeze(0)
+        probs = self.forward(state)#.cpu()
+        m = Categorical(probs)
+        action = m.sample()
+        return action.item(), m.log_prob(action)
 
 
 class RNN_Baseline_Policy(nn.Module):
@@ -19,8 +69,7 @@ class RNN_Baseline_Policy(nn.Module):
                  rnn_hidden_size: int = 2,
                  rnn_hidden_out: int = 2,
                  rnn_bidirectional: bool = True,
-                 units: int = 50, 
-                 device: torch.device = torch.device("cpu")):
+                 units: int = 50):
         """
         RNN Class for text classification with RL.
         Arguments:
@@ -41,8 +90,7 @@ class RNN_Baseline_Policy(nn.Module):
 
         self.embed_dim = embed_dim
         self.out_num_classes = out_num_classes
-        self.device = device
-
+    
         self.embed_enc = nn.Embedding(vocab_size, embed_dim, max_norm=True)
         self.rnn = nn.GRU(embed_dim, rnn_hidden_out, rnn_hidden_size,
                           bidirectional=rnn_bidirectional, batch_first=True)
@@ -90,15 +138,13 @@ class RNN_Baseline_Policy(nn.Module):
 
         return x
     
-    def act(self, state):
+    def predict(self, state):
         if type(state) != torch.Tensor:
-            state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+            state = torch.from_numpy(state).float().unsqueeze(0)
         probs = self.forward(state)#.cpu()
         m = Categorical(probs)
         action = m.sample()
         return action.item(), m.log_prob(action)
-
-
 
 
 class Transformer_Baseline_Policy(nn.Module):
@@ -111,8 +157,7 @@ class Transformer_Baseline_Policy(nn.Module):
                  num_layers: int,
                  pretrained: str = "None",
                  freeze_emb: bool = True,
-                 embed_dim: int = 5,
-                 device: torch.device = torch.device("cpu")):
+                 embed_dim: int = 5):
         """
         A classifier template with transformer encoder layers.
 
@@ -132,7 +177,7 @@ class Transformer_Baseline_Policy(nn.Module):
         """
         
         super(Transformer_Baseline_Policy, self).__init__()
-        self.device = device
+        
         self.embed_dim = embed_dim
         self.out_dim = out_num_classes
         self.trns_out_dim = embed_dim * input_dim
@@ -195,9 +240,9 @@ class Transformer_Baseline_Policy(nn.Module):
 
         return x
     
-    def act(self, state):
+    def predict(self, state):
         if type(state) != torch.Tensor:
-            state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+            state = torch.from_numpy(state).float().unsqueeze(0)
         probs = self.forward(state)#.cpu()
         m = Categorical(probs)
         action = m.sample()
@@ -217,10 +262,10 @@ class Transformer_Baseline_Policy(nn.Module):
 
 class BERT_Baseline_Policy(nn.Module):
 
-    def __init__(self, output_dim, dropout: float = 0.5, device: torch.device = torch.device("cpu")):
+    def __init__(self, output_dim, dropout: float = 0.5):
 
         super(BERT_Baseline_Policy, self).__init__()
-        self.device = device
+        
         self.bert = transformers.BertModel.from_pretrained('bert-base-cased')
         self.dropout = nn.Dropout(dropout)
         self.linear = nn.Linear(768, output_dim)
@@ -234,12 +279,149 @@ class BERT_Baseline_Policy(nn.Module):
 
         return final_layer
     
-    def act(self, state):
+    def predict(self, state):
         if type(state) != torch.Tensor:
-            state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+            state = torch.from_numpy(state).float().unsqueeze(0)
         probs = self.forward(state)#.cpu()
         m = Categorical(probs)
         action = m.sample()
         return action.item(), m.log_prob(action)
 
+
+class CNN1DExtractor(BaseFeaturesExtractor):
+    def __init__(self, 
+                observation_space: gym.spaces.Box,
+                n_filter_list: List[int],
+                kernel_size: int,
+                vocab_size: int,
+                embed_dim: int = 5,
+                features_dim: int = 256):
+        """Create a feature extractor model with 1D conv. nets for SB3 algorithms. 
+
+        Args:
+            observation_space (gym.spaces.Box): Observation from the environment.
+            n_filter_list (List[int]): List for number of filters in conv. layers.
+            kernel_size (int): Size of the sliding window for conv. operations. (will be used in all conv. layers)
+            vocab_size (int): Number of unique words in the data for word embeddings.
+            embed_dim (int): Embedding dimension. Defaults to 5.
+            features_dim (int, optional): Dİmension of the extracted features. Defaults to 256.
+        """
+        super(CNN1DExtractor, self).__init__(observation_space, features_dim)
+        # We assume 1D inputs (n_feature_dim, )
+
+        self.conv_layers = []
+        self.kernel_size = kernel_size
+        self.out_dim = features_dim
+        self.embed_dim = embed_dim
+
+        self.embedding = nn.Embedding(vocab_size, self.embed_dim)
+        self.n_filter_list = [self.embed_dim]
+        self.n_filter_list.extend(n_filter_list)
+        for ii in range(len(self.n_filter_list) - 1):
+            self.conv_layers.append(nn.Conv1d(self.n_filter_list[ii], self.n_filter_list[ii+1], self.kernel_size, stride=1))
+
         
+        self.flatten = nn.Flatten()
+
+        self.conv_out_dim = 1
+        with torch.no_grad():
+            #TODO hardcoded unsquueze here, only generic for 1d text inputs 
+            
+            dummy_data = torch.arange(1, observation_space.shape[0]+1).int().unsqueeze(0)
+            dummy_data = self.embedding(dummy_data)
+            dummy_data = torch.swapaxes(dummy_data, 1, 2)
+            for layer in self.conv_layers:
+                dummy_data = layer(dummy_data)
+            
+            dummy_data = self.flatten(dummy_data)
+            self.conv_out_dim = dummy_data.shape[1]
+            
+
+        self.fc1 = nn.Linear(self.conv_out_dim, self.out_dim)
+    
+
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        x = self.embedding(observations.int())
+        x = torch.swapaxes(x, 1, 2)
+        # x = torch.unsqueeze(observations, 1) # reshape observations to (n_samples, 1, n_features) for convolution layer
+        # print(x.shape)
+        for layer in self.conv_layers:
+            x = torch.relu(layer(x))
+
+        x = self.flatten(x)
+        x = torch.relu(self.fc1(x))
+
+        return x
+       
+
+    # override apply method for conv. layer list (needed in model.to(device))
+    def _apply(self, fn):
+        super()._apply(fn)
+        for layer in self.conv_layers:
+            layer = layer._apply(fn)
+
+        return self 
+
+
+class RNNExtractor(BaseFeaturesExtractor):
+    def __init__(self, vocab_size: int,
+                 observation_space: gym.spaces.Box,
+                 features_dim: int,
+                 embed_dim: int = 5,
+                 rnn_type: str = "gru",
+                 rnn_hidden_size: int = 2,
+                 rnn_hidden_out: int = 2,
+                 rnn_bidirectional: bool = True,
+                 units: int = 50):
+        """RNN Class for text classification with RL.
+
+        Args:
+            vocab_size (int): specifies the size of the vocabulary to be used in word embeddings.
+            observation_space (gym.spaces.Box):Observation space shaped (n_samples, max_sentence_length (input_dim))
+            features_dim (int): specifies the number of possible actions for the agent.
+            embed_dim (int, optional): embed_dim specifies the embedding dimension for the categorical part of the input. Defaults to 5.
+            rnn_type (str, optional): specifies the type of the recurrent layer for word embeddings. Defaults to "gru".
+            rnn_hidden_size (int, optional): specifies the number of stacked recurrent layers. Defaults to 2.
+            rnn_hidden_out (int, optional): specifies number of features in the hidden state h of recurrent layer. Defaults to 2.
+            rnn_bidirectional (bool, optional): specifies whether the recurrent layers be bidirectional. Defaults to True.
+            units (int, optional): specifies the number of neurons in the hidden layers. Defaults to 50.
+        """
+        super(RNNExtractor, self).__init__(observation_space, features_dim)
+        self.embed_dim = embed_dim
+        self.features_dim = features_dim
+
+        input_dim = observation_space.shape[0]
+    
+        self.embed_enc = nn.Embedding(vocab_size, embed_dim, max_norm=True)
+        self.rnn = nn.GRU(embed_dim, rnn_hidden_out, rnn_hidden_size,
+                          bidirectional=rnn_bidirectional, batch_first=True)
+        if rnn_type == "lstm":
+            self.rnn = nn.LSTM(embed_dim, rnn_hidden_out, rnn_hidden_size,
+                               bidirectional=rnn_bidirectional, batch_first=True)
+        elif rnn_type != "gru":
+            raise ValueError("The argument rnn_type must be 'gru' or 'lstm'!")
+
+        rnn_out_dim = rnn_hidden_out * input_dim
+        if rnn_bidirectional:
+            rnn_out_dim *= 2
+
+        self.flat = nn.Flatten()
+        self.fc1 = nn.Linear(rnn_out_dim, units)
+        self.fc2 = nn.Linear(units, units)
+        self.fc3 = nn.Linear(units, features_dim)
+    
+
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        # reshape when there is only one sample
+        if len(observations.shape) == 1:
+            x = torch.unsqueeze(observations, 0)
+        
+        x_c = self.embed_enc(x.int())
+        x_c, _ = self.rnn(x_c)
+        x_c = self.flat(x_c)
+
+        x = F.relu(self.fc1(x_c))
+        x = F.relu(self.fc2(x))
+        x = torch.relu(self.fc3(x))
+
+        return x       
