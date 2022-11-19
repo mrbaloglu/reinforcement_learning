@@ -14,7 +14,7 @@ class PartialReadingRewardFunctionF1:
         self.pos_label = pos_label
         self.label_list = label_list
 
-    def __call__(self, action: str, target, prediction_history, prev_targets: List[str], exploration_discount: float = 0.) -> float:
+    """def __call__(self, action: str, target, prediction_history, prev_targets: List[str], exploration_discount: float = 0.) -> float:
 
         if action in self.label_list:
             # get current action sequence
@@ -27,25 +27,43 @@ class PartialReadingRewardFunctionF1:
             
             # step reward as change in the scores
             # as good actions lead to increase in the scores
-            """print("-"*25)
-            print(prev_targets)
-            print(prediction_history)
-            print("-"*25)"""
+            
             previous_score = 0.
             if len(prev_targets) > 0:
                 previous_score = f1_score(prev_targets, prediction_history, pos_label=self.pos_label, zero_division=0)
-            """print("="*25)
-            print(current_targets)
-            print(current_pred_history)
-            print("="*25)"""
+            
             current_score = f1_score(current_targets, current_pred_history, pos_label=self.pos_label, zero_division=0)
             reward = current_score - previous_score
 
             return reward
         # give negative feedback when reread, previous or next, here curiosity may be applied
         else:
-            return 0#-1e-2*(np.log2(exploration_discount))
+            return  -0.1*(np.log2(exploration_discount))"""
 
+    def __call__(self, action: str, target: str, confusion_matrix: np.ndarray, prev_reward, exploration_discount: float = 0.) -> float:
+        if action in self.label_list:
+            action_ix = self.label_list.index(action)
+            target_ix = self.label_list.index(target)
+            confusion_matrix[action_ix, target_ix] += 1
+            precisions = np.zeros((confusion_matrix.shape[0],))  # per class precision scores
+            recalls = np.zeros((confusion_matrix.shape[0],)) # per class recall scores
+            f1s = np.zeros((confusion_matrix.shape[0],)) # per class f1 scores
+            for j in range(confusion_matrix.shape[0]):
+                if np.sum(confusion_matrix[j, :]) != 0:
+                    precisions[j] = confusion_matrix[j, j] / np.sum(confusion_matrix[j, :])
+                    
+                if np.sum(confusion_matrix[:, j]) != 0:
+                    recalls[j] = confusion_matrix[j, j] / np.sum(confusion_matrix[:, j])
+                
+                if precisions[j] + recalls[j] != 0:
+                    f1s[j] = 2*precisions[j]*recalls[j] / (precisions[j]+recalls[j])
+        
+                
+            macro_f1 = np.average(f1s)
+            return macro_f1, confusion_matrix
+        else:
+            return -0.0*(np.log2(exploration_discount)), confusion_matrix
+        
 class PartialReadingRewardFunctionAccuracy:
     """
     Computes accuracy score between predicted and target labels
