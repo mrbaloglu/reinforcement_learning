@@ -13,6 +13,7 @@ from tqdm.notebook import  tqdm_notebook
 import pickle
 import json
 import transformers
+import platform
 
 def preprocess_text(sen: str) -> list:
     """
@@ -183,13 +184,18 @@ def bert_tokenize_data(data: pd.DataFrame, tokenizer, keys: List[str], max_len: 
 
 
 if __name__ == "__main__":
+    sep = '/'
     data_path = "/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning/NLP_datasets/RT_Polarity"
-    data = pd.read_csv(data_path + "/rt-polarity-train.csv")
+    if platform.system() == "Windows":
+        sep = '\\'
+        data_path = "C:\\Users\\mrbal\\Documents\\NLP\\RL\\basic_reinforcement_learning\\NLP_datasets\\RT_Polarity"
+    
+    data = pd.read_csv(data_path + sep + "rt-polarity-train.csv")
     data = dataLabel2Str(data, "label", {0: "bad", 1: "good"})
     print(data.columns)
-    data_val = pd.read_csv(data_path + "/rt-polarity-val.csv")
+    data_val = pd.read_csv(data_path + sep + "rt-polarity-val.csv")
     data_val = dataLabel2Str(data_val, "label", {0: "bad", 1: "good"})
-    data_test = pd.read_csv(data_path + "/rt-polarity-test.csv")
+    data_test = pd.read_csv(data_path + sep + "rt-polarity-test.csv")
     data_test = dataLabel2Str(data_test, "label", {0: "bad", 1: "good"})
     ########## process with default tokenizer ######################
     """
@@ -211,15 +217,19 @@ if __name__ == "__main__":
    
     # save the processed data in pickle files
 
-    storeDf2Pickle(data, data_path + "/rt-polarity-train.pkl")
-    storeDf2Pickle(data_val, data_path + "/rt-polarity-val.pkl")
-    storeDf2Pickle(data_test, data_path + "/rt-polarity-test.pkl")
+    storeDf2Pickle(data, data_path + sep + "rt-polarity-train.pkl")
+    storeDf2Pickle(data_val, data_path + sep + "rt-polarity-val.pkl")
+    storeDf2Pickle(data_test, data_path + sep + "rt-polarity-test.pkl")
 
     data_info = {"path": data_path, "max_len": max_len, "vocab_size": len(tokenizer.word_index) + 1}
-    with open(data_path + "/data_info.json", "w") as out:
-        json.dump(data_info, out)
-    
-    data_test = openDfFromPickle(data_path + "/rt-polarity-test.pkl")
+    if platform.system() == "Windows":
+        with open(data_path + sep + "data_info_windows.json", "w") as out:
+            json.dump(data_info, out)
+    else:
+        with open(data_path + sep + "data_info.json", "w") as out:
+            json.dump(data_info, out)
+
+    data_test = openDfFromPickle(data_path + sep + "rt-polarity-test.pkl")
     print(data_test.sample(5))
     samples = np.stack(data_test["review_tokenized"].values)
     print(samples.shape)
@@ -242,20 +252,24 @@ if __name__ == "__main__":
     data_test, tokenizer = bert_tokenize_data(data_test, tokenizer, ["review"], max_len=max_len)
 
     data_info_bert = {"path": data_path, "max_len": max_len, "vocab_size": tokenizer.vocab_size}
-    with open(data_path + "/data_info_bert.json", "w") as out:
-        json.dump(data_info_bert, out)
+    if platform.system() == "Windows":
+        with open(data_path + sep + "data_info_bert_windows.json", "w") as out:
+            json.dump(data_info_bert, out)
+    else:
+        with open(data_path + sep + "data_info_bert.json", "w") as out:
+            json.dump(data_info_bert, out)
 
     print(data.columns)
 
-    storeDf2Pickle(data, data_path + "/rt-polarity-train-bert.pkl")
-    storeDf2Pickle(data_val, data_path + "/rt-polarity-val-bert.pkl")
-    storeDf2Pickle(data_test, data_path + "/rt-polarity-test-bert.pkl")
+    storeDf2Pickle(data, data_path + sep + "rt-polarity-train-bert.pkl")
+    storeDf2Pickle(data_val, data_path + sep + "rt-polarity-val-bert.pkl")
+    storeDf2Pickle(data_test, data_path + sep + "rt-polarity-test-bert.pkl")
 
-    data = openDfFromPickle(data_path + "/rt-polarity-train-bert.pkl")
+    data = openDfFromPickle(data_path + sep + "rt-polarity-train-bert.pkl")
     print(data.columns)
-    # print(data.head())
-    # dd = data.iloc[0,:]
-    # print(dd)
-    # print(data["review_bert_input_ids"].iloc[0])
-    # print(tokenizer.decode(data["review_bert_input_ids"].iloc[0]))
+    print(data.head())
+    dd = data.iloc[0,:]
+    print(dd)
+    print(data["review_bert_input_ids"].iloc[0])
+    print(tokenizer.decode(data["review_bert_input_ids"].iloc[0]))
 

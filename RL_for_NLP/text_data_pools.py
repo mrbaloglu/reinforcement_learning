@@ -113,7 +113,7 @@ class PartialReadingDataPoolWithBertTokens:
         print(f"Maximum sentence length in pool: {self.max_len}")
         self.window_size = window_size  
         self.samples = []
-        assert window_size < self.max_len, \
+        assert window_size <= self.max_len, \
             f"Number of words  to be read in each step (window_size) should be smaller than maximum sentence length, got window_size: {window_size}, max_len: {self.max_len}."
         
         self.possible_actions = list(data[target_col + "_str"].unique())
