@@ -176,6 +176,8 @@ class TextEnvClfBert(gym.Env):
         self.prediction_history = []
         self.target_history = []
         self.sample_ix_history = []
+        self.confusion_matrix = np.zeros((len(self.pool.possible_actions), len(self.pool.possible_actions)))
+        self.last_reward = 0
         
         self.max_time_steps = max_time_steps
 
@@ -192,9 +194,11 @@ class TextEnvClfBert(gym.Env):
         
         action_str = self.action_space.ix_to_action(action)
         label_str = self.action_space.ix_to_action(self.current_label.item())
-        step_reward = self.reward_function(action_str, label_str, self.prediction_history, self.target_history, self.time_step+1)
+        reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix, self.last_reward, self.time_step+1)
+        step_reward = reward - self.last_reward
+        self.last_reward = reward
         
-        if action_str in self.pool.possible_actions: # action_str == "good" or "bad":
+        if action_str in self.pool.possible_actions: # e.g action_str == "good" or "bad":
             if self.current_sample_ix != None:
                 self.current_sample_ix += 1
                 self.current_sample_ix %= len(self.pool)
@@ -247,6 +251,8 @@ class TextEnvClfBert(gym.Env):
         self.action_history = []
         self.target_history = []
         self.prediction_history = []
+        self.confusion_matrix = np.zeros((len(self.pool.possible_actions), len(self.pool.possible_actions)))
+        self.last_reward = 0
 
         return self.current_state_input_id.astype(np.int32) # .detach().numpy()
     
