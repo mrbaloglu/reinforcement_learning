@@ -140,9 +140,9 @@ class TextEnvClfBert(gym.Env):
     
     def __init__(self, 
                 data_pool: PartialReadingDataPoolWithBertTokens,
-                 max_time_steps: int, 
-                 reward_fn: str = "f1",
-                 random_walk: bool = False):
+                max_time_steps: int, 
+                reward_fn: str = "f1",
+                random_walk: bool = False):
         super().__init__()
 
         assert reward_fn in ["f1", "accuracy", "precision", "recall"], \
@@ -262,7 +262,8 @@ class TextEnvClfBert(gym.Env):
         low = np.full((self.pool.window_size, ), fill_value=-1)
         high = np.full((self.pool.window_size, ), fill_value=int(1e+6))
         self.observation_space = spaces.Box(low, high, dtype=np.int32)
-
+    
+    
 
 if __name__ == "__main__":
     data = nlp_preprocessing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")

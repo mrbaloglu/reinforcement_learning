@@ -16,8 +16,9 @@ import torch
 from torch.optim import Adam
 import mlflow
 
-from stable_baselines3 import A2C
+from stable_baselines3 import A2C, DQN, PPO
 from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.dqn.policies import MlpPolicy
 from stable_baselines3 import DQN
 
@@ -47,8 +48,8 @@ train_pool = PartialReadingDataPoolWithBertTokens(data_train, "review", "label",
 test_pool = PartialReadingDataPoolWithBertTokens(data_test, "review", "label", "good", WINDOW_SIZE)
 val_pool = PartialReadingDataPoolWithBertTokens(data_val, "review", "label", "good", WINDOW_SIZE)
 
-
-train_env = TextEnvClfBert(train_pool, MAX_STEPS, reward_fn="accuracy")
+train_env_params = dict(data_pool=train_pool, max_time_steps=MAX_STEPS, reward_fn="accuracy", random_walk=True)
+train_env = TextEnvClfBert(**train_env_params)
 val_env = TextEnvClfBert(val_pool, 1000, reward_fn="accuracy")
 test_env = TextEnvClfBert(test_pool, 1000, reward_fn="accuracy")
 print("All environments are created.")
@@ -74,25 +75,27 @@ def eval_model(model, env):
     print("---------------------------------------------")
 
 
+
 policy_kwargs = dict(
     features_extractor_class=pn.CNN1DExtractor,
     features_extractor_kwargs=dict(vocab_size = VOCAB_SIZE, embed_dim = 50, 
                                 n_filter_list = [128, 64, 64, 32, 32, 16], kernel_size = 4, features_dim = 256),
 )
 # model = DQN("CnnPolicy", train_env, policy_kwargs=policy_kwargs, verbose=1, batch_size=64)
-model = A2C(policy = "CnnPolicy",
+model = A2C(policy = "MlpPolicy",
             env = train_env,
             gae_lambda = 0.9,
             gamma = 0.99,
-            learning_rate = 0.001,
+            learning_rate = 0.01,
             max_grad_norm = 0.5,
-            n_steps = 20,
+            n_steps = 10000,
             vf_coef = 0.4,
             ent_coef = 0.0,
             policy_kwargs=policy_kwargs,
             normalize_advantage=False,
             verbose=0, 
             use_rms_prop=False)
+# model = PPO("MlpPolicy", train_env, policy_kwargs=policy_kwargs)
 
 
 for i in range(int(5)):
