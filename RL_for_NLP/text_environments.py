@@ -18,7 +18,7 @@ from NLP_utils import pytorch_datasets as nlp_datasets
 from torch.utils.data import Dataset, DataLoader
 from RL_for_NLP.text_data_pools import PartialReadingDataPoolWithWord2Vec, PartialReadingDataPoolWithBertTokens
 from RL_for_NLP.text_action_space import ActionSpace
-from RL_for_NLP.text_reward_functions import PartialReadingRewardFunctionF1, PartialReadingRewardFunctionAccuracy
+from RL_for_NLP.text_reward_functions import PartialReadingRewardF1, PartialReadingRewardAccuracy, PartialReadingRewardPrecision, PartialReadingRewardRecall
 from RL_for_NLP.observation import Observation
 
 
@@ -142,7 +142,8 @@ class TextEnvClfBert(gym.Env):
                 data_pool: PartialReadingDataPoolWithBertTokens,
                 max_time_steps: int, 
                 reward_fn: str = "f1",
-                random_walk: bool = False):
+                random_walk: bool = False, 
+                use_mask_tokens: bool = False):
         super().__init__()
 
         assert reward_fn in ["f1", "accuracy", "precision", "recall"], \
@@ -151,6 +152,7 @@ class TextEnvClfBert(gym.Env):
         self.time_step = 0
         self.pool = data_pool
         self.random_walk = random_walk
+        self.use_mask_tokens = use_mask_tokens
         
         self.current_sample_ix = 0
         if self.random_walk:
@@ -182,11 +184,14 @@ class TextEnvClfBert(gym.Env):
         self.max_time_steps = max_time_steps
 
         if reward_fn == "f1":
-            self.reward_function = PartialReadingRewardFunctionF1(self.pool.pos_label, self.pool.possible_actions)
+            self.reward_function = PartialReadingRewardF1(self.pool.possible_actions)
         elif reward_fn == "accuracy":
-            self.reward_function = PartialReadingRewardFunctionAccuracy(self.pool.possible_actions)
+            self.reward_function = PartialReadingRewardAccuracy(self.pool.possible_actions)
+        elif reward_fn == "precision":
+            self.reward_function = PartialReadingRewardPrecision(self.pool.possible_actions)
         else:
-            raise NotImplementedError
+            self.reward_function = PartialReadingRewardRecall(self.pool.possible_actions)
+
         self._set_spaces()
 
 
@@ -194,7 +199,7 @@ class TextEnvClfBert(gym.Env):
         
         action_str = self.action_space.ix_to_action(action)
         label_str = self.action_space.ix_to_action(self.current_label.item())
-        reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix, self.last_reward, self.time_step+1)
+        reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix, self.time_step+1)
         step_reward = reward - self.last_reward
         self.last_reward = reward
         
@@ -231,7 +236,10 @@ class TextEnvClfBert(gym.Env):
             
         
         dict_ = {"text": self.current_observation.get_sample_str(), "label": label_str, "action": action_str, "reward": step_reward}
-
+        if self.use_mask_tokens:
+            return {"input_id": self.current_state_input_id.astype(np.int32), 
+                    "attention_mask": self.current_state_attn_mask.astype(np.int32)}, \
+                    step_reward, done, dict_ 
         return self.current_state_input_id.astype(np.int32), step_reward, done, dict_ 
 
     def reset(self):
@@ -274,8 +282,8 @@ class TextEnvClfBert(gym.Env):
 if __name__ == "__main__":
     data = nlp_preprocessing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")
     pool = PartialReadingDataPoolWithBertTokens(data, "review", "label", "good", 8)
-    env = TextEnvClfBert(pool, int(1e+5), False)
-    check_env(env)
+    env = TextEnvClfBert(pool, int(1e+5), "precision", True, True)
+    # check_env(env)
     print(env.step(1))
     print(env.step(2))
     print(env.step(1))

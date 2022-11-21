@@ -25,6 +25,7 @@ from stable_baselines3 import DQN
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, accuracy_score
 import json
+from collections import Counter
 
 
 with open("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning/NLP_datasets/RT_Polarity/data_info_bert.json", "r") as f:
@@ -56,6 +57,7 @@ print("All environments are created.")
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}.")
+
 def eval_model(model, env):
     done = False
     obs = env.reset()
@@ -69,10 +71,15 @@ def eval_model(model, env):
         total_reward += rewards
     print("---------------------------------------------")
     print(f"Predicted Label {actions}")
-    print(f"Total Reward: {total_reward}")
-    print(f"F1 Score: {f1_score(env.get_target_history(), env.get_prediction_history(), pos_label=env.pool.pos_label)}")
+    print(f"Total Steps and seen samples: {len(actions), len(env.get_target_history())}")
+    print(f"F1 Score: {f1_score(env.get_target_history(), env.get_prediction_history(), average='macro')}")
+    acts = list(Counter(actions).keys())
+    freqs = list(Counter(actions).values())
+    total = len(actions)
+    print(f"Action stats --  {[{acts[ii]: freqs[ii]/total} for ii in range(len(acts))]}")
     print(f"Accuracy: {accuracy_score(env.get_target_history(), env.get_prediction_history())}")
     print("---------------------------------------------")
+
 
 
 
@@ -99,7 +106,7 @@ model = A2C(policy = "MlpPolicy",
 
 
 for i in range(int(5)):
-    model.learn(total_timesteps=int(1e+4)*5, reset_num_timesteps=True, progress_bar=True)
+    model.learn(total_timesteps=int(1e+3)*5, reset_num_timesteps=True, progress_bar=True)
     eval_model(model, val_env)
 
 
