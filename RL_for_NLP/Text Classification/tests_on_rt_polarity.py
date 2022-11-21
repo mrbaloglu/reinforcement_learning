@@ -83,11 +83,19 @@ def eval_model(model, env):
 
 
 
-policy_kwargs = dict(
+"""policy_kwargs = dict(
     features_extractor_class=pn.CNN1DExtractor,
     features_extractor_kwargs=dict(vocab_size = VOCAB_SIZE, embed_dim = 50, 
                                 n_filter_list = [128, 64, 64, 32, 32, 16], kernel_size = 4, features_dim = 256),
+)"""
+
+policy_kwargs = dict(
+    features_extractor_class=pn.RNNExtractor,
+    features_extractor_kwargs=dict(vocab_size = VOCAB_SIZE, embed_dim = 50,
+                 rnn_type = "gru", rnn_hidden_size = 5, rnn_hidden_out = 10, rnn_bidirectional = True,
+                 features_dim = 256, units = 50),
 )
+
 # model = DQN("CnnPolicy", train_env, policy_kwargs=policy_kwargs, verbose=1, batch_size=64)
 model = A2C(policy = "MlpPolicy",
             env = train_env,
