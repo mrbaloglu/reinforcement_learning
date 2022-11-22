@@ -63,8 +63,11 @@ class PartialReadingRewardF1(PartialReadingReward):
         if action in self.label_list:
             confusion_matrix = super().update_cm(action, target, confusion_matrix)
             macro_f1 = calculate_stats_from_cm(confusion_matrix)["f1"]
+            # tm = 1
+            # if action != target:
+            #     tmp = -1.25
 
-            return macro_f1, confusion_matrix
+            return exploration_discount * macro_f1, confusion_matrix # 10 5,5 0.5 11 6,5 6/11 5/11
         else:
             return -0.0*(np.log2(exploration_discount)), confusion_matrix
         

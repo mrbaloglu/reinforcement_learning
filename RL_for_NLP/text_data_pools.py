@@ -18,7 +18,7 @@ from RL_for_NLP.observation import Observation, BertObservation
 
 class PartialReadingDataPoolWithWord2Vec:
     
-    def __init__(self, data: pd.DataFrame, text_col: str, tokenized_col: str, target_col: str, pos_label: str, window_size: int, **kwargs):
+    def __init__(self, data: pd.DataFrame, text_col: str, tokenized_col: str, target_col: str, window_size: int, **kwargs):
         """Create a data pool for partial reading. Given a dataframe with processed, tokenized text inputs, the pool creates
         episodes for partial reading. (outputs chunks of text in selected length with label)
 
@@ -44,7 +44,6 @@ class PartialReadingDataPoolWithWord2Vec:
             f"Number of words  to be read in each step (window_size) should be smaller than maximum sentence length, got window_size: {window_size}, max_len: {self.max_len}."
         
         self.possible_actions = list(data[target_col + "_str"].unique())
-        self.pos_label = pos_label
         vecs = np.stack(data[tokenized_col].copy().values).astype(np.int32)
         self.n_samples = len(vecs)
         pad_size = self.window_size - (self.max_len % self.window_size)
@@ -85,7 +84,7 @@ class PartialReadingDataPoolWithWord2Vec:
 
 class PartialReadingDataPoolWithBertTokens:
     
-    def __init__(self, data: pd.DataFrame, text_col: str, target_col: str, pos_label: str, window_size: int, **kwargs):
+    def __init__(self, data: pd.DataFrame, text_col: str, target_col: str, window_size: int, **kwargs):
         """Create a data pool for partial reading. Given a dataframe with processed, bert-tokenized text inputs, the pool creates
         episodes for partial reading. (outputs chunks of text in selected length with label)
 
@@ -117,7 +116,6 @@ class PartialReadingDataPoolWithBertTokens:
             f"Number of words  to be read in each step (window_size) should be smaller than maximum sentence length, got window_size: {window_size}, max_len: {self.max_len}."
         
         self.possible_actions = list(data[target_col + "_str"].unique())
-        self.pos_label = pos_label
 
         input_id_vecs = np.stack(data[text_col + "_bert_input_ids"].copy().values).astype(np.int32)
         token_type_vecs = np.stack(data[text_col + "_bert_token_type_ids"].copy().values).astype(np.int32)

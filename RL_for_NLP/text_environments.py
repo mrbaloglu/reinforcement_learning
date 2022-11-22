@@ -52,19 +52,18 @@ class TextEnvClf(gym.Env):
         action_list.append("<next>")
         action_list.append("<previous>")
         self.action_space = ActionSpace(action_list)
-        self.action_history = []
-        self.prediction_history = []
-        self.target_history = []
-        self.sample_ix_history = []
+        
         
         self.max_time_steps = max_time_steps
 
         if reward_fn == "f1":
-            self.reward_function = PartialReadingRewardFunctionF1(self.pool.pos_label, self.pool.possible_actions)
+            self.reward_function = PartialReadingRewardF1(self.pool.possible_actions)
         elif reward_fn == "accuracy":
-            self.reward_function = PartialReadingRewardFunctionAccuracy(self.pool.possible_actions)
+            self.reward_function = PartialReadingRewardAccuracy(self.pool.possible_actions)
+        elif reward_fn == "precision":
+            self.reward_function = PartialReadingRewardPrecision(self.pool.possible_actions)
         else:
-            raise NotImplementedError
+            self.reward_function = PartialReadingRewardRecall(self.pool.possible_actions)
 
         self._set_spaces()
 
@@ -73,8 +72,10 @@ class TextEnvClf(gym.Env):
         
         action_str = self.action_space.ix_to_action(action)
         label_str = self.action_space.ix_to_action(self.current_label.item())
-        step_reward = self.reward_function(action_str, label_str, self.prediction_history, self.target_history, self.time_step+1)
-        
+        reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix)
+        step_reward = reward - self.last_reward
+        self.last_reward = reward
+
         if action_str in self.pool.possible_actions: # action_str == "good" or "bad":
             if self.current_sample_ix != None:
                 self.current_sample_ix += 1
@@ -83,9 +84,6 @@ class TextEnvClf(gym.Env):
             self.current_observation = self.pool.create_episode(self.current_sample_ix)
             self.current_vecs = self.current_observation.get_sample_vecs() 
             self.current_label = self.current_observation.get_label_enc()
-            self.prediction_history.append(action_str)
-            self.target_history.append(label_str)
-            self.sample_ix_history.append(self.current_sample_ix)
             self.current_state_ix = 0
 
         elif action_str == "<previous>":
@@ -95,7 +93,7 @@ class TextEnvClf(gym.Env):
             
         self.current_state_ix %= len(self.current_vecs)
         self.current_state = self.current_vecs[self.current_state_ix]
-        self.action_history.append(action_str)
+        
         
 
         
@@ -117,20 +115,11 @@ class TextEnvClf(gym.Env):
         self.current_state_ix = 0
         self.current_state = self.current_vecs[self.current_state_ix]
         self.time_step = 0
-        self.action_history = []
-        self.target_history = []
-        self.prediction_history = []
+        
 
         return self.current_state.astype(np.int32) # .detach().numpy()
     
-    def get_prediction_history(self):
-        return copy.deepcopy(self.prediction_history)
-    def get_target_history(self):
-        return copy.deepcopy(self.target_history)
-    def get_sample_ix_history(self):
-        return copy.deepcopy(self.sample_ix_history)
-
-
+    
     def _set_spaces(self):
         low = np.full((self.pool.window_size, ), fill_value=-1)
         high = np.full((self.pool.window_size, ), fill_value=int(1e+6))
@@ -150,6 +139,7 @@ class TextEnvClfBert(gym.Env):
             f"Reward functions needs to be one of 'f1', 'accuracy', 'precision', 'recall', got {reward_fn}."
 
         self.time_step = 0
+        self.seen_samples = 0
         self.pool = data_pool
         self.random_walk = random_walk
         self.use_mask_tokens = use_mask_tokens
@@ -174,10 +164,6 @@ class TextEnvClfBert(gym.Env):
         action_list.append("<next>")
         # action_list.append("<previous>")
         self.action_space = ActionSpace(action_list)
-        self.action_history = []
-        self.prediction_history = []
-        self.target_history = []
-        self.sample_ix_history = []
         self.confusion_matrix = np.zeros((len(self.pool.possible_actions), len(self.pool.possible_actions)))
         self.last_reward = 0
         
@@ -199,7 +185,7 @@ class TextEnvClfBert(gym.Env):
         
         action_str = self.action_space.ix_to_action(action)
         label_str = self.action_space.ix_to_action(self.current_label.item())
-        reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix, self.time_step+1)
+        reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix, self.seen_samples+1)
         step_reward = reward - self.last_reward
         self.last_reward = reward
         
@@ -208,14 +194,13 @@ class TextEnvClfBert(gym.Env):
                 self.current_sample_ix += 1
                 self.current_sample_ix %= len(self.pool)
 
+            self.seen_samples += 1
             self.current_observation = self.pool.create_episode(self.current_sample_ix)
             self.current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()
             self.current_token_type_vecs = self.current_observation.get_sample_token_type_vecs()
             self.current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
             self.current_label = self.current_observation.get_label_enc()
-            self.prediction_history.append(action_str)
-            self.target_history.append(label_str)
-            self.sample_ix_history.append(self.current_sample_ix)
+            
             self.current_state_ix = 0
 
         elif action_str == "<previous>":
@@ -227,7 +212,7 @@ class TextEnvClfBert(gym.Env):
         self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
         self.current_state_token_type = self.current_token_type_vecs[self.current_state_ix]
         self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
-        self.action_history.append(action_str)
+        
         
 
         
@@ -256,26 +241,19 @@ class TextEnvClfBert(gym.Env):
         self.current_state_token_type = self.current_token_type_vecs[self.current_state_ix]
         self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
         self.time_step = 0
-        self.action_history = []
-        self.target_history = []
-        self.prediction_history = []
+        
         self.confusion_matrix = np.zeros((len(self.pool.possible_actions), len(self.pool.possible_actions)))
         self.last_reward = 0
 
         return self.current_state_input_id.astype(np.int32) # .detach().numpy()
     
-    def get_prediction_history(self):
-        return copy.deepcopy(self.prediction_history)
-    def get_target_history(self):
-        return copy.deepcopy(self.target_history)
-    def get_sample_ix_history(self):
-        return copy.deepcopy(self.sample_ix_history)
-
-
     def _set_spaces(self):
         low = np.full((self.pool.window_size, ), fill_value=-1)
         high = np.full((self.pool.window_size, ), fill_value=int(1e+6))
         self.observation_space = spaces.Box(low, high, dtype=np.int32)
+    
+    def __len__(self) -> int:
+        return len(self.pool)
     
     
 

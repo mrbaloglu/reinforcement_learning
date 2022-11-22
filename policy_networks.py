@@ -367,14 +367,14 @@ class CNN1DExtractor(BaseFeaturesExtractor):
 
 
 class RNNExtractor(BaseFeaturesExtractor):
-    def __init__(self, vocab_size: int,
-                 observation_space: gym.spaces.Box,
-                 features_dim: int,
+    def __init__(self, observation_space: gym.spaces.Box,
+                 vocab_size: int,
                  embed_dim: int = 5,
                  rnn_type: str = "gru",
                  rnn_hidden_size: int = 2,
                  rnn_hidden_out: int = 2,
                  rnn_bidirectional: bool = True,
+                 features_dim: int = 256,
                  units: int = 50):
         """RNN Class for text classification with RL.
 
@@ -391,7 +391,8 @@ class RNNExtractor(BaseFeaturesExtractor):
         """
         super(RNNExtractor, self).__init__(observation_space, features_dim)
         self.embed_dim = embed_dim
-        self.features_dim = features_dim
+
+        # self.features_dim = features_dim
 
         input_dim = observation_space.shape[0]
     
@@ -417,9 +418,9 @@ class RNNExtractor(BaseFeaturesExtractor):
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         # reshape when there is only one sample
         if len(observations.shape) == 1:
-            x = torch.unsqueeze(observations, 0)
+            observations = torch.unsqueeze(observations, 0)
         
-        x_c = self.embed_enc(x.int())
+        x_c = self.embed_enc(observations.int())
         x_c, _ = self.rnn(x_c)
         x_c = self.flat(x_c)
 
