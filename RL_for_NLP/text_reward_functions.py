@@ -65,11 +65,11 @@ class PartialReadingRewardF1(PartialReadingReward):
             macro_f1 = calculate_stats_from_cm(confusion_matrix)["f1"]
             # tm = 1
             # if action != target:
-            #     tmp = -1.25
+            #     tm = -1.25
 
-            return exploration_discount * macro_f1, confusion_matrix # 10 5,5 0.5 11 6,5 6/11 5/11
+            return  macro_f1, confusion_matrix 
         else:
-            return -0.0*(np.log2(exploration_discount)), confusion_matrix
+            return -0.0, confusion_matrix # -0.0*(np.log2(exploration_discount)), confusion_matrix
         
 class PartialReadingRewardAccuracy(PartialReadingReward):
     """
@@ -121,3 +121,15 @@ class PartialReadingRewardRecall(PartialReadingReward):
             return recall, confusion_matrix
         else:
             return -0.0*(np.log2(exploration_discount)), confusion_matrix
+
+class PartialReadingRewardScore(PartialReadingReward):
+    def __call__(self, action: str, target: str, confusion_matrix: np.ndarray, exploration_discount: float = 0) -> float:
+        if action in self.label_list:
+            confusion_matrix = super().update_cm(action, target, confusion_matrix)
+            tmp = int(action == target)
+            if tmp == 0:
+                tmp = -1.25
+            return tmp, confusion_matrix
+        else:
+            return -0.02, confusion_matrix
+        
