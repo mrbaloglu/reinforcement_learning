@@ -18,7 +18,7 @@ from RL_for_NLP.observation import Observation, BertObservation
 
 class PartialReadingDataPoolWithWord2Vec:
     
-    def __init__(self, data: pd.DataFrame, text_col: str, tokenized_col: str, target_col: str, pos_label: str, window_size: int, **kwargs):
+    def __init__(self, data: pd.DataFrame, text_col: str, tokenized_col: str, target_col: str, window_size: int, **kwargs):
         """Create a data pool for partial reading. Given a dataframe with processed, tokenized text inputs, the pool creates
         episodes for partial reading. (outputs chunks of text in selected length with label)
 
@@ -44,7 +44,6 @@ class PartialReadingDataPoolWithWord2Vec:
             f"Number of words  to be read in each step (window_size) should be smaller than maximum sentence length, got window_size: {window_size}, max_len: {self.max_len}."
         
         self.possible_actions = list(data[target_col + "_str"].unique())
-        self.pos_label = pos_label
         vecs = np.stack(data[tokenized_col].copy().values).astype(np.int32)
         self.n_samples = len(vecs)
         pad_size = self.window_size - (self.max_len % self.window_size)
@@ -85,7 +84,7 @@ class PartialReadingDataPoolWithWord2Vec:
 
 class PartialReadingDataPoolWithBertTokens:
     
-    def __init__(self, data: pd.DataFrame, text_col: str, target_col: str, pos_label: str, window_size: int, **kwargs):
+    def __init__(self, data: pd.DataFrame, text_col: str, target_col: str, window_size: int, **kwargs):
         """Create a data pool for partial reading. Given a dataframe with processed, bert-tokenized text inputs, the pool creates
         episodes for partial reading. (outputs chunks of text in selected length with label)
 
@@ -117,7 +116,6 @@ class PartialReadingDataPoolWithBertTokens:
             f"Number of words  to be read in each step (window_size) should be smaller than maximum sentence length, got window_size: {window_size}, max_len: {self.max_len}."
         
         self.possible_actions = list(data[target_col + "_str"].unique())
-        self.pos_label = pos_label
 
         input_id_vecs = np.stack(data[text_col + "_bert_input_ids"].copy().values).astype(np.int32)
         token_type_vecs = np.stack(data[text_col + "_bert_token_type_ids"].copy().values).astype(np.int32)
@@ -164,6 +162,62 @@ class PartialReadingDataPoolWithBertTokens:
     
     def __len__(self) -> int:
         return self.n_samples
+
+
+class SimpleSequentialDataPool:
+    
+    def __init__(self, n_samples, n_features, window_size: int, **kwargs):
+        self.n_samples = n_samples
+        self.n_features = n_features
+        data = np.zeros((n_samples, n_features))
+        labels = np.zeros((n_samples))
+        for j in range(data.shape[0]):
+            ix = np.random.randint(data.shape[1])
+            val = np.random.choice([-1, 1])
+            data[j, ix] = val
+            if val == 1:
+                labels[j] = 1
+        
+        self.data = data
+        self.labels = labels
+        self.window_size = window_size  
+        self.samples = []
+        assert window_size < self.n_features, \
+            f"Number of words  to be read in each step (window_size) should be smaller than maximum sentence length, got window_size: {window_size}, max_len: {self.max_len}."
+        
+        self.possible_actions = ["pos", "neg"]
+        self.ix_to_str = {0: "neg", 1: "pos"}
+        self.max_len = n_features
+        
+        pad_size = self.window_size - (self.max_len % self.window_size)
+       
+        if pad_size > 0:
+            pad_m = np.zeros((self.n_samples, pad_size))
+            self.data = np.concatenate((self.data, pad_m), axis=1)
+            self.max_len = self.data.shape[1]
+        
+        
+
+        for j in range(self.data.shape[0]):
+
+            sample_data = np.split(self.data[j], self.max_len / self.window_size)
+            self.samples.append(sample_data)
+        
+    def create_episode(self, idx: int = None): # -> Tuple[List[torch.Tensor], torch.Tensor]:
+        if idx == None:
+            idx = np.random.randint(self.n_samples)
+
+        idx = idx % self.n_samples
+
+        return self.samples[idx], self.ix_to_str[self.labels[idx]]
+
+
+    """def __getitem__(self, idx) -> Tuple[List[torch.Tensor], torch.Tensor]:
+        states, label = self.create_episode(idx)
+        return states, label"""
+    
+    def __len__(self) -> int:
+        return self.n_samples
  
 
 
@@ -182,22 +236,20 @@ if __name__ == "__main__":
     ######################################################################
 
     ############## pool with bert tokens #################################
-    data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")
-    print(data_train.head())
+    # data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")
+    # print(data_train.head())
 
-    pool = PartialReadingDataPoolWithBertTokens(data_train, "review", "label", "good", 11)
-    ix = np.random.randint(len(pool))
-    obs = pool.create_episode(ix)
+    # pool = PartialReadingDataPoolWithBertTokens(data_train, "review", "label", "good", 11)
+    # ix = np.random.randint(len(pool))
+    # obs = pool.create_episode(ix)
+    # print(obs)
+    # print(obs.get_sample_input_id_vecs())
+    # print(obs.get_sample_token_type_vecs())
+    # print(obs.get_sample_attn_mask_vecs())
+    # print(obs.get_label_enc())
+    # print(obs.get_label_str())
+
+    pool = SimpleSequentialDataPool(1000, 10, 2)
+    obs = pool.create_episode()
     print(obs)
-    print(obs.get_sample_input_id_vecs())
-    print(obs.get_sample_token_type_vecs())
-    print(obs.get_sample_attn_mask_vecs())
-    print(obs.get_label_enc())
-    print(obs.get_label_str())
-
-        
-
-    
-
-
 

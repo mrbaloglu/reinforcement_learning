@@ -349,10 +349,10 @@ class CNN1DExtractor(BaseFeaturesExtractor):
         # x = torch.unsqueeze(observations, 1) # reshape observations to (n_samples, 1, n_features) for convolution layer
         # print(x.shape)
         for layer in self.conv_layers:
-            x = torch.relu(layer(x))
+            x = F.relu(layer(x))
 
         x = self.flatten(x)
-        x = torch.relu(self.fc1(x))
+        x = F.relu(self.fc1(x))
 
         return x
        
@@ -391,7 +391,9 @@ class RNNExtractor(BaseFeaturesExtractor):
         """
         super(RNNExtractor, self).__init__(observation_space, features_dim)
         self.embed_dim = embed_dim
-        
+
+        # self.features_dim = features_dim
+
         input_dim = observation_space.shape[0]
     
         self.embed_enc = nn.Embedding(vocab_size, embed_dim, max_norm=True)
@@ -424,6 +426,26 @@ class RNNExtractor(BaseFeaturesExtractor):
 
         x = F.relu(self.fc1(x_c))
         x = F.relu(self.fc2(x))
-        x = torch.relu(self.fc3(x))
+        x = F.relu(self.fc3(x))
 
+        return x       
+
+
+class DummyNN(BaseFeaturesExtractor):
+    def __init__(self, observation_space: gym.spaces.Box,
+                input_dim: int,
+                features_dim: int = 256,):
+        
+        super(DummyNN, self).__init__(observation_space, features_dim)
+       
+    
+        self.fc1 = nn.Linear(input_dim, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc3 = nn.Linear(256, features_dim)
+    
+
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        x = F.relu(self.fc1(observations))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
         return x       
