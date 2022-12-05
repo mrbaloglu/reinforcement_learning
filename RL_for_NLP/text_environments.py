@@ -168,13 +168,11 @@ class TextEnvClfBert(gym.Env):
         self.current_observation = self.pool.create_episode(self.current_sample_ix)
 
         self.current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()
-        self.current_token_type_vecs = self.current_observation.get_sample_token_type_vecs()
         self.current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
 
         self.current_label = self.current_observation.get_label_enc()
         self.current_state_ix = 0
         self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
-        self.current_state_token_type = self.current_token_type_vecs[self.current_state_ix]
         self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
         
         action_list = copy.deepcopy(self.pool.possible_actions)
@@ -185,6 +183,7 @@ class TextEnvClfBert(gym.Env):
         self.last_reward = 0
         
         self.max_time_steps = max_time_steps
+        self.same_sample_steps = 0
 
         if reward_fn == "f1":
             self.reward_function = PartialReadingRewardF1(self.pool.possible_actions)
@@ -201,15 +200,21 @@ class TextEnvClfBert(gym.Env):
 
 
     def step(self, action: int):
-        self.itv_optimizer.zero_grad()
+        multiplier = self.same_sample_steps // self.pool.window_size
+        if multiplier > 1:
+            multiplier *= -1
+
         action_str = self.action_space.ix_to_action(action)
         label_str = self.action_space.ix_to_action(self.current_label.item())
-        reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix, self.seen_samples+1)
-        step_reward = reward * 0.5
+        reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix, self.same_sample_steps*multiplier)
+        step_reward = reward # * 0.5
         self.last_reward = reward
-
-        state_now_phi = self.state_extractor(torch.Tensor(self.current_state_input_id))
-        pred_next_phi = self.next_predictor(state_now_phi)
+        
+        if self.train_mode:
+            self.itv_optimizer.zero_grad()
+            state_now = torch.from_numpy(self.current_state_input_id.copy())
+            state_now_phi = self.state_extractor(state_now)
+            pred_next_phi = self.next_predictor(state_now_phi)
         
         if action_str in self.pool.possible_actions: # e.g action_str == "good" or "bad":
             if self.current_sample_ix != None:
@@ -219,29 +224,30 @@ class TextEnvClfBert(gym.Env):
             self.seen_samples += 1
             self.current_observation = self.pool.create_episode(self.current_sample_ix)
             self.current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()
-            self.current_token_type_vecs = self.current_observation.get_sample_token_type_vecs()
             self.current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
             self.current_label = self.current_observation.get_label_enc()
             
             self.current_state_ix = 0
+            self.same_sample_steps = 0
 
         elif action_str == "<previous>":
             self.current_state_ix -= 1
+            self.same_sample_steps += 1
         elif action_str == "<next>":
             self.current_state_ix += 1
+            self.same_sample_steps += 1
             
         self.current_state_ix %= len(self.current_input_id_vecs)
         self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
-        self.current_state_token_type = self.current_token_type_vecs[self.current_state_ix]
         self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
         
-        state_next_phi = self.state_extractor(torch.Tensor(self.current_state_input_id))
-        loss = self.state_loss(pred_next_phi, state_next_phi)
         if self.train_mode:
+            state_next = torch.from_numpy(self.current_state_input_id.copy())
+            state_next_phi = self.state_extractor(state_next)
+            loss = self.state_loss(pred_next_phi, state_next_phi)
             loss.backward()
             self.itv_optimizer.step()
-
-        step_reward += 0.5 * loss.item()
+            step_reward += 0.5 * loss.item()
         
 
         
@@ -262,14 +268,13 @@ class TextEnvClfBert(gym.Env):
 
         self.current_observation = self.pool.create_episode(self.current_sample_ix)
         self.current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()
-        self.current_token_type_vecs = self.current_observation.get_sample_token_type_vecs()
         self.current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
         self.current_label = self.current_observation.get_label_enc()
         self.current_state_ix = 0
         self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
-        self.current_state_token_type = self.current_token_type_vecs[self.current_state_ix]
         self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
         self.time_step = 0
+        self.same_sample_steps = 0
 
         self.state_extractor = itv_models.RNN_Feature_Extractor(self.vocab_size, self.pool.window_size, 10)
         self.next_predictor = itv_models.NextStatePredictor(10, [30, 30])

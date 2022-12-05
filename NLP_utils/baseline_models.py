@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from typing import Union
-from torchtext.vocab import GloVe
+# from torchtext.vocab import GloVe
 import transformers
 
 def create_emb_layer(weights_matrix, freeze = True):

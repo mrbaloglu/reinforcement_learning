@@ -118,7 +118,6 @@ class PartialReadingDataPoolWithBertTokens:
         self.possible_actions = list(data[target_col + "_str"].unique())
 
         input_id_vecs = np.stack(data[text_col + "_bert_input_ids"].copy().values).astype(np.int32)
-        token_type_vecs = np.stack(data[text_col + "_bert_token_type_ids"].copy().values).astype(np.int32)
         attn_mask_vecs = np.stack(data[text_col + "_bert_attention_mask"].copy().values).astype(np.int32)
         
         self.n_samples = len(input_id_vecs)
@@ -127,7 +126,6 @@ class PartialReadingDataPoolWithBertTokens:
         if pad_size > 0:
             pad_m = np.zeros((self.n_samples, pad_size))
             input_id_vecs = np.concatenate((input_id_vecs, pad_m), axis=1)
-            token_type_vecs = np.concatenate((token_type_vecs, pad_m), axis=1)
             attn_mask_vecs = np.concatenate((attn_mask_vecs, pad_m), axis=1)
             self.max_len = input_id_vecs.shape[1]
         
@@ -136,11 +134,10 @@ class PartialReadingDataPoolWithBertTokens:
         for j in range(input_id_vecs.shape[0]):
             sample_str = data[text_col][j]
             sample_input_id_vecs = np.split(input_id_vecs[j], self.max_len / self.window_size)
-            sample_token_type_vecs = np.split(token_type_vecs[j], self.max_len / self.window_size)
             sample_attn_mask_vecs = np.split(attn_mask_vecs[j], self.max_len / self.window_size)
             label_enc = data[target_col][j]
             label_str = data[target_col + "_str"][j]
-            obs = BertObservation(sample_str, sample_input_id_vecs, sample_token_type_vecs, sample_attn_mask_vecs, label_str, label_enc)
+            obs = BertObservation(sample_str, sample_input_id_vecs, sample_attn_mask_vecs, label_str, label_enc)
             self.samples.append(obs)
         
         
