@@ -198,7 +198,7 @@ if __name__ == "__main__":
     data_test = pd.read_csv(data_path + sep + "rt-polarity-test.csv")
     data_test = dataLabel2Str(data_test, "label", {0: "bad", 1: "good"})
     ########## process with default tokenizer ######################
-    """
+    
     data, tokenizer = tokenize_data(data, ["review"], preprocess=True)
     print("n_words_1: ", len(tokenizer.word_index) + 1)
     data, max_len = pad_tokenized_data(data, ["review_tokenized"])
@@ -238,10 +238,11 @@ if __name__ == "__main__":
         ss.append(np.split(samples[j], 2))
     
     print(len(ss), len(ss[0]))
-    print(ss[0][0].shape)"""
+    print(ss[0][0].shape)
     ############################################################################
     
     ################# process with pretrained bert tokenizer ###################
+    """
     data = process_df_texts(data, ["review"])
     data_val = process_df_texts(data_val, ["review"])
     data_test = process_df_texts(data_test, ["review"])
@@ -271,5 +272,5 @@ if __name__ == "__main__":
     dd = data.iloc[0,:]
     print(dd)
     print(data["review_bert_input_ids"].iloc[0])
-    print(tokenizer.decode(data["review_bert_input_ids"].iloc[0]))
+    print(tokenizer.decode(data["review_bert_input_ids"].iloc[0]))"""
 

@@ -21,7 +21,7 @@ sys.path.append(root_path)
 from RL_for_NLP.text_environments import TextEnvClfBert, TextEnvClf
 from RL_for_NLP.text_reward_functions import calculate_stats_from_cm
 
-from RL_for_NLP.text_data_pools import PartialReadingDataPoolWithWord2Vec, PartialReadingDataPoolWithBertTokens
+from RL_for_NLP.text_data_pools import PartialReadingDataPoolWithTokens, PartialReadingDataPoolWithBertTokens
 import NLP_utils.preprocessing as nlp_processing
 import reinforce_algorithm_utils as rl_monte_carlo
 import policy_networks as pn

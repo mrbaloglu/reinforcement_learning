@@ -18,7 +18,7 @@ from NLP_utils import pytorch_datasets as nlp_datasets
 import intrinsic_text_value_models as itv_models
 
 from torch.utils.data import Dataset, DataLoader
-from RL_for_NLP.text_data_pools import PartialReadingDataPoolWithWord2Vec, PartialReadingDataPoolWithBertTokens, SimpleSequentialDataPool
+from RL_for_NLP.text_data_pools import PartialReadingDataPoolWithTokens, PartialReadingDataPoolWithBertTokens, SimpleSequentialDataPool
 from RL_for_NLP.text_action_space import ActionSpace
 from RL_for_NLP.text_reward_functions import PartialReadingRewardF1, PartialReadingRewardAccuracy, PartialReadingRewardPrecision, PartialReadingRewardRecall, PartialReadingRewardScore
 from RL_for_NLP.observation import Observation
@@ -27,7 +27,7 @@ from RL_for_NLP.observation import Observation
 class TextEnvClf(gym.Env):
     
     def __init__(self, 
-                data_pool: PartialReadingDataPoolWithWord2Vec, 
+                data_pool: PartialReadingDataPoolWithTokens, 
                 max_time_steps: int, 
                 reward_fn: str = "f1",
                 random_walk: bool = False):
