@@ -18,26 +18,28 @@ from NLP_utils import pytorch_datasets as nlp_datasets
 import intrinsic_text_value_models as itv_models
 
 from torch.utils.data import Dataset, DataLoader
-from RL_for_NLP.text_data_pools import PartialReadingDataPoolWithTokens, PartialReadingDataPoolWithBertTokens, SimpleSequentialDataPool
+from RL_for_NLP.text_data_pools import PartialReadingDataPoolWithTokens, PartialReadingDataPoolWithBertTokens, SimpleSequentialDataPool, PartialReadingDataPool
 from RL_for_NLP.text_action_space import ActionSpace
 from RL_for_NLP.text_reward_functions import PartialReadingRewardF1, PartialReadingRewardAccuracy, PartialReadingRewardPrecision, PartialReadingRewardRecall, PartialReadingRewardScore
 from RL_for_NLP.observation import Observation
 
+from abc import ABC, abstractmethod
 
-class TextEnvClf(gym.Env):
-    
-    def __init__(self, 
-                data_pool: PartialReadingDataPoolWithTokens, 
-                max_time_steps: int, 
-                reward_fn: str = "f1",
-                random_walk: bool = False):
-        super().__init__()
+
+class BaseTextEnvClf(gym.Env, ABC):
+    def __init__(self, data_pool: PartialReadingDataPool, max_time_steps: int, reward_fn: str = "f1",  random_walk: bool = False):
         assert reward_fn in ["f1", "accuracy", "precision", "recall", "score"], \
             f"Reward functions needs to be one of 'f1', 'accuracy', 'precision', 'recall', 'score', got {reward_fn}."
 
+        super().__init__()
         self.time_step = 0
         self.pool = data_pool
         self.random_walk = random_walk
+        action_list = copy.deepcopy(self.pool.possible_actions)
+        action_list.append("<next>")
+        # action_list.append("<previous>")
+        self.action_space = ActionSpace(action_list)
+        self.confusion_matrix = np.zeros((len(self.pool.possible_actions), len(self.pool.possible_actions)))
         
         self.current_sample_ix = 0
         if self.random_walk:
@@ -45,17 +47,6 @@ class TextEnvClf(gym.Env):
     
         self.current_observation = self.pool.create_episode(self.current_sample_ix)
 
-        self.current_vecs = self.current_observation.get_sample_vecs()
-        self.current_label = self.current_observation.get_label_enc()
-        self.current_state_ix = 0
-        self.current_state = self.current_vecs[self.current_state_ix]
-        
-        action_list = copy.deepcopy(self.pool.possible_actions)
-        action_list.append("<next>")
-        action_list.append("<previous>")
-        self.action_space = ActionSpace(action_list)
-        
-        
         self.max_time_steps = max_time_steps
 
         if reward_fn == "f1":
@@ -69,13 +60,39 @@ class TextEnvClf(gym.Env):
         else: 
             self.reward_function = PartialReadingRewardScore(self.pool.possible_actions)
 
-        self._set_spaces()
+        self.observation_space = spaces.Box(0, self.pool.vocab_size, shape=(self.pool.window_size, ), dtype=int) 
+        self.current_state_ix = 0
+    
+    @abstractmethod 
+    def update_current_state(self):
+        raise NotImplementedError
+     
 
+class TextEnvClf(BaseTextEnvClf):
+    
+    def __init__(self, 
+                data_pool: PartialReadingDataPoolWithTokens, 
+                max_time_steps: int, 
+                reward_fn: str = "f1",
+                random_walk: bool = False):
+        super().__init__(data_pool, max_time_steps, reward_fn, random_walk)
+        self.update_current_state()
+
+
+        
+    
+    def update_current_state(self):
+        current_vecs = self.current_observation.get_sample_vecs()
+        current_label = self.current_observation.get_label_enc()
+       
+        self.current_state = current_vecs[self.current_state_ix]
+
+        
 
     def step(self, action: int):
         
         action_str = self.action_space.ix_to_action(action)
-        label_str = self.action_space.ix_to_action(self.current_label.item())
+        label_str = self.action_space.ix_to_action(self.current_observation.get_label_enc().item())
         reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix)
         step_reward = reward
         if not isinstance(self.reward_function, PartialReadingRewardScore):
@@ -126,11 +143,18 @@ class TextEnvClf(gym.Env):
 
         return self.current_state.astype(np.int32) # .detach().numpy()
     
-    
+    # TODO burada observation ile alakalı bir sorun olabilir burdan devam et: https://www.gymlibrary.dev/content/environment_creation/ !!!
     def _set_spaces(self):
-        low = np.full((self.pool.window_size, ), fill_value=-1)
-        high = np.full((self.pool.window_size, ), fill_value=int(1e+6))
-        self.observation_space = spaces.Box(low, high, dtype=np.int32)
+        # low = np.full((self.pool.window_size, ), fill_value=-1)
+        # high = np.full((self.pool.window_size, ), fill_value=)
+        # self.observation_space = spaces.Box(low, high, dtype=np.int32)
+        # self.observation_space = spaces.Dict(
+        #     {
+        #         "current": spaces.Box(0, self.pool.vocab_size, shape=(self.pool.window_size,), dtype=int),
+        #         "next": spaces.Box(0, self.pool.vocab_size, shape=(self.pool.window_size), dtype=int),
+        #     }
+        # )
+        self.observation_space = spaces.Box(0, self.pool.vocab_size, shape=(self.pool.window_size, ), dtype=int)
 
 class TextEnvClfBert(gym.Env):
     

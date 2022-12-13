@@ -23,6 +23,7 @@ class PartialReadingDataPool(ABC):
         self.samples = []
         self.labels = data[target_col].copy().values.astype(np.int32)
         self.max_len = -1 # will be updated with populate_samples function
+        self.vocab_size = -1 # will be updated with populate_samples function
         self.possible_actions = list(data[target_col + "_str"].unique())
     
     def create_episode(self, idx: int = None): # -> Tuple[List[torch.Tensor], torch.Tensor]:
@@ -83,6 +84,7 @@ class PartialReadingDataPoolWithTokens(PartialReadingDataPool):
         
         vecs = np.stack(data[text_col + "_tokenized"].copy().values).astype(np.int32)
         self.n_samples = len(vecs)
+        self.vocab_size = np.max(vecs) + 1
         pad_size = self.window_size - (self.max_len % self.window_size)
 
         if pad_size > 0:
@@ -141,6 +143,7 @@ class PartialReadingDataPoolWithBertTokens(PartialReadingDataPool):
         attn_mask_vecs = np.stack(data[text_col + "_bert_attention_mask"].copy().values).astype(np.int32)
         
         self.n_samples = len(input_id_vecs)
+        self.vocab_size = np.max(input_id_vecs)
         pad_size = self.window_size - (self.max_len % self.window_size)
        
         if pad_size > 0:
@@ -222,29 +225,31 @@ class SimpleSequentialDataPool:
 if __name__ == "__main__":
     
     ############## pool with regular tokens ############################
-    # data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train.pkl")
-    # print(data_train.head())
-    # pool = PartialReadingDataPoolWithTokens(data_train, "review", "label", 16)
-
-    # ix = np.random.randint(len(pool))
-    # obs = pool.create_episode(ix)
-    # print(obs)
-    # print(obs.get_sample_vecs())
-    # print(obs.get_label_enc())
-    ######################################################################
-
-    ############## pool with bert tokens #################################
-    data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")
+    data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train.pkl")
     print(data_train.head())
-
-    pool = PartialReadingDataPoolWithBertTokens(data_train, "review", "label", 11)
+    pool = PartialReadingDataPoolWithTokens(data_train, "review", "label", 16)
+    print(pool.vocab_size)
     ix = np.random.randint(len(pool))
     obs = pool.create_episode(ix)
     print(obs)
-    print(obs.get_sample_input_id_vecs())
-    print(obs.get_sample_attn_mask_vecs())
+    print(obs.get_sample_vecs())
     print(obs.get_label_enc())
-    print(obs.get_label_str())
+    ######################################################################
+
+    ############## pool with bert tokens #################################
+    # data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")
+    # print(data_train.head())
+
+    # pool = PartialReadingDataPoolWithBertTokens(data_train, "review", "label", 11)
+    # print(pool.vocab_size)
+    # ix = np.random.randint(len(pool))
+    # obs = pool.create_episode(ix)
+    # print(obs)
+    # print(obs.get_sample_input_id_vecs())
+    # print(obs.get_sample_attn_mask_vecs())
+    # print(obs.get_label_enc())
+    # print(obs.get_label_str())
+    
 
     # pool = SimpleSequentialDataPool(1000, 10, 2)
     # obs = pool.create_episode()

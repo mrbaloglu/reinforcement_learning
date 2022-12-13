@@ -16,3 +16,10 @@ NLP_utils/__pycache__/pytorch_datasets.cpython-37.pyc
 deep-q-learning-space-invaders.ipynb
 ppo-LunarLander-v2.zip
 tester.ipynb
+__pycache__/intrinsic_text_value_models.cpython-37.pyc
+__pycache__/policy_networks.cpython-37.pyc
+RL_for_NLP/__pycache__/observation.cpython-37.pyc
+RL_for_NLP/__pycache__/text_action_space.cpython-37.pyc
+RL_for_NLP/__pycache__/text_data_pools.cpython-37.pyc
+RL_for_NLP/__pycache__/text_environments.cpython-37.pyc
+RL_for_NLP/__pycache__/text_reward_functions.cpython-37.pyc
