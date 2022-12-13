@@ -138,6 +138,7 @@ class TextEnvClfBert(gym.Env):
                 data_pool: PartialReadingDataPoolWithBertTokens,
                 max_time_steps: int,
                 vocab_size: int,
+                max_same_sample_steps: int = 15,
                 reward_fn: str = "f1",
                 random_walk: bool = False, 
                 use_mask_tokens: bool = False):
@@ -148,6 +149,8 @@ class TextEnvClfBert(gym.Env):
 
         self.time_step = 0
         self.seen_samples = 0
+        self.same_sample_step = 0
+        self.max_same_sample_steps = max_same_sample_steps
         self.pool = data_pool
         self.random_walk = random_walk
         self.use_mask_tokens = use_mask_tokens
@@ -183,7 +186,6 @@ class TextEnvClfBert(gym.Env):
         self.last_reward = 0
         
         self.max_time_steps = max_time_steps
-        self.same_sample_steps = 0
 
         if reward_fn == "f1":
             self.reward_function = PartialReadingRewardF1(self.pool.possible_actions)
@@ -200,13 +202,13 @@ class TextEnvClfBert(gym.Env):
 
 
     def step(self, action: int):
-        multiplier = self.same_sample_steps // self.pool.window_size
+        """multiplier = self.same_sample_steps // self.pool.window_size
         if multiplier > 1:
-            multiplier *= -1
+            multiplier *= -1"""
 
         action_str = self.action_space.ix_to_action(action)
         label_str = self.action_space.ix_to_action(self.current_label.item())
-        reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix, self.same_sample_steps*multiplier)
+        reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix, 1)
         step_reward = reward # * 0.5
         self.last_reward = reward
         
@@ -228,14 +230,14 @@ class TextEnvClfBert(gym.Env):
             self.current_label = self.current_observation.get_label_enc()
             
             self.current_state_ix = 0
-            self.same_sample_steps = 0
+            self.same_sample_step = 0
 
         elif action_str == "<previous>":
             self.current_state_ix -= 1
-            self.same_sample_steps += 1
+            self.same_sample_step += 1
         elif action_str == "<next>":
             self.current_state_ix += 1
-            self.same_sample_steps += 1
+            self.same_sample_step += 1
             
         self.current_state_ix %= len(self.current_input_id_vecs)
         self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
@@ -250,6 +252,20 @@ class TextEnvClfBert(gym.Env):
             step_reward += 0.5 * loss.item()
         
 
+        if self.max_same_sample_steps < self.same_sample_step: # go to the next sample when limit is reached
+            step_reward -= 5
+            if self.current_sample_ix != None:
+                self.current_sample_ix += 1
+                self.current_sample_ix %= len(self.pool)
+
+            self.seen_samples += 1
+            self.current_observation = self.pool.create_episode(self.current_sample_ix)
+            self.current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()
+            self.current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
+            self.current_label = self.current_observation.get_label_enc()
+            
+            self.current_state_ix = 0
+            self.same_sample_step = 0
         
         self.time_step += 1
         done = (self.time_step > self.max_time_steps)
@@ -274,7 +290,7 @@ class TextEnvClfBert(gym.Env):
         self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
         self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
         self.time_step = 0
-        self.same_sample_steps = 0
+        self.same_sample_step = 0
 
         self.state_extractor = itv_models.RNN_Feature_Extractor(self.vocab_size, self.pool.window_size, 10)
         self.next_predictor = itv_models.NextStatePredictor(10, [30, 30])
@@ -427,6 +443,8 @@ class SimpleSequentialEnv(gym.Env):
     def __len__(self) -> int:
         return len(self.pool)
      
+
+
 
 if __name__ == "__main__":
     # data = nlp_preprocessing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")

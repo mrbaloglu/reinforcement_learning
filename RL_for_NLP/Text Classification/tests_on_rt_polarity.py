@@ -53,7 +53,7 @@ data_train = nlp_processing.openDfFromPickle(data_info["path"] + sep + "rt-polar
 
 
 # declare some hyperparameters
-WINDOW_SIZE = 5
+WINDOW_SIZE = 16
 MAX_STEPS = int(1e+5)
 VOCAB_SIZE = data_info["vocab_size"]
 REWARD_FN = "score"
