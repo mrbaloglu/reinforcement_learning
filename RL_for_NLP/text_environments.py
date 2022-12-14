@@ -102,8 +102,8 @@ class BaseTextEnvClf(gym.Env, ABC):
             self.current_observation = self.pool.create_episode(self.current_sample_ix)
             self.current_state_ix = 0
 
-        elif action_str == "<previous>":
-            self.current_state_ix -= 1
+        # elif action_str == "<previous>":
+        #     self.current_state_ix -= 1
         elif action_str == "<next>":
             self.current_state_ix += 1
             
@@ -172,7 +172,7 @@ class TextEnvClfForBertModels(BaseTextEnvClf):
     
     def __init__(self, data_pool: PartialReadingDataPool, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False ):
         super().__init__()
-        self.update_current_state()
+        self.current_state = self.update_current_state()
         self._set_spaces()
 
     
@@ -182,10 +182,18 @@ class TextEnvClfForBertModels(BaseTextEnvClf):
 
         self.current_label = self.current_observation.get_label_enc()
         self.current_state_ix = 0
-        self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
-        self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
-        
-
+        # self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
+        # self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
+        return {"input_id": current_input_id_vecs[self.current_state_ix], "attn_mask": current_attn_mask_vecs[self.current_state_ix]}
+    
+    def _set_spaces(self):
+        self.observation_space = spaces.Dict(
+            {
+                "input_id": spaces.Box(0, self.pool.vocab_size, shape=(self.pool.window_size, ), dtype=int),
+                "attn_mask": spaces.Box(0, 2, shape=(self.pool.window_size, ), dtype=int) 
+            }
+        )
+    
 
     def step(self, action: int):
         """multiplier = self.same_sample_steps // self.pool.window_size
@@ -267,10 +275,7 @@ class TextEnvClfForBertModels(BaseTextEnvClf):
 
         return self.current_state_input_id.astype(np.int32) # .detach().numpy()
     
-    def _set_spaces(self):
-        low = np.full((self.pool.window_size, ), fill_value=-1)
-        high = np.full((self.pool.window_size, ), fill_value=int(1e+6))
-        self.observation_space = spaces.Box(low, high, dtype=np.int32)
+    
     
     def __len__(self) -> int:
         return len(self.pool)
