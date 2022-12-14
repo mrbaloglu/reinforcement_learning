@@ -48,7 +48,7 @@ class BaseTextEnvClf(gym.Env, ABC):
             self.current_sample_ix = None
     
         self.current_observation = self.pool.create_episode(self.current_sample_ix)
-        self.n_sentences_in_obs = len(self.current_observation.get_sample_vecs())
+        
 
         self.max_time_steps = max_time_steps
 
@@ -134,6 +134,7 @@ class TextEnvClf(BaseTextEnvClf):
     def __init__(self, data_pool: PartialReadingDataPoolWithTokens, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False):
         super().__init__(data_pool, max_time_steps, reward_fn, random_walk)
         self.current_state = self.update_current_state()
+        self.n_sentences_in_obs = len(self.current_observation.get_sample_vecs())
         self._set_spaces()
         
     # create/update the current state that the agent will observe, using current observation and state index
@@ -170,10 +171,15 @@ class TextEnvClf(BaseTextEnvClf):
 
 class TextEnvClfForBertModels(BaseTextEnvClf):
     
-    def __init__(self, data_pool: PartialReadingDataPool, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False ):
-        super().__init__()
+    def __init__(self, data_pool: PartialReadingDataPool, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False):
+        super().__init__(data_pool, max_time_steps, reward_fn, random_walk)
         self.current_state = self.update_current_state()
+        self.n_sentences_in_obs = len(self.current_observation.get_sample_input_id_vecs())
         self._set_spaces()
+        print("---- Inside constructor ---------")
+        print("Input id shape: ", self.current_state["input_id"].shape, type(self.current_state["input_id"]))
+        print("Attn mask shape: ", self.current_state["attn_mask"].shape, type(self.current_state["attn_mask"]))
+        print("------------- End Constructor-------------")
 
     
     def update_current_state(self):
@@ -181,10 +187,10 @@ class TextEnvClfForBertModels(BaseTextEnvClf):
         current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
 
         self.current_label = self.current_observation.get_label_enc()
-        self.current_state_ix = 0
         # self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
         # self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
-        return {"input_id": current_input_id_vecs[self.current_state_ix], "attn_mask": current_attn_mask_vecs[self.current_state_ix]}
+        return {"input_id": current_input_id_vecs[self.current_state_ix].astype(int), 
+                "attn_mask": current_attn_mask_vecs[self.current_state_ix].astype(int)}
     
     def _set_spaces(self):
         self.observation_space = spaces.Dict(
@@ -196,92 +202,18 @@ class TextEnvClfForBertModels(BaseTextEnvClf):
     
 
     def step(self, action: int):
-        """multiplier = self.same_sample_steps // self.pool.window_size
-        if multiplier > 1:
-            multiplier *= -1"""
+        reward, done, info = super().step(action)
+        self.current_state = self.update_current_state()
 
-        
-        if action_str in self.pool.possible_actions: # e.g action_str == "good" or "bad":
-            if self.current_sample_ix != None:
-                self.current_sample_ix += 1
-                self.current_sample_ix %= len(self.pool)
-
-            self.seen_samples += 1
-            self.current_observation = self.pool.create_episode(self.current_sample_ix)
-            self.current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()
-            self.current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
-           
-            
-            self.current_state_ix = 0
-
-        elif action_str == "<previous>":
-            self.current_state_ix -= 1
-            self.same_sample_step += 1
-        elif action_str == "<next>":
-            self.current_state_ix += 1
-            self.same_sample_step += 1
-            
-        self.current_state_ix %= len(self.current_input_id_vecs)
-        self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
-        self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
-        
-        
-
-        if self.max_same_sample_steps < self.same_sample_step: # go to the next sample when limit is reached
-            step_reward -= 5
-            if self.current_sample_ix != None:
-                self.current_sample_ix += 1
-                self.current_sample_ix %= len(self.pool)
-
-            self.seen_samples += 1
-            self.current_observation = self.pool.create_episode(self.current_sample_ix)
-            self.current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()
-            self.current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
-           
-            
-            self.current_state_ix = 0
-            self.same_sample_step = 0
-        
-        self.time_step += 1
-        done = (self.time_step > self.max_time_steps)
-            
-        
-        dict_ = {"text": self.current_observation.get_sample_str(), "label": label_str, "action": action_str, "reward": step_reward}
-        if self.use_mask_tokens:
-            return {"input_id": self.current_state_input_id.astype(np.int32), 
-                    "attention_mask": self.current_state_attn_mask.astype(np.int32)}, \
-                    step_reward, done, dict_ 
-        return self.current_state_input_id.astype(np.int32), step_reward, done, dict_ 
+        return self.current_state, reward, done, info 
 
     def reset(self):
-        if self.current_sample_ix != None:
-            self.current_sample_ix = 0
-
-        self.current_observation = self.pool.create_episode(self.current_sample_ix)
-        self.current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()
-        self.current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
-      
-        self.current_state_ix = 0
-        self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
-        self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
-        self.time_step = 0
-        self.same_sample_step = 0
-
-        self.state_extractor = itv_models.RNN_Feature_Extractor(self.vocab_size, self.pool.window_size, 10)
-        self.next_predictor = itv_models.NextStatePredictor(10, [30, 30])
-        
-        self.confusion_matrix = np.zeros((len(self.pool.possible_actions), len(self.pool.possible_actions)))
-        self.last_reward = 0
-
-        return self.current_state_input_id.astype(np.int32) # .detach().numpy()
-    
-    
+        super().reset()
+        self.current_state = self.update_current_state()
+        return self.current_state
     
     def __len__(self) -> int:
         return len(self.pool)
-    
-    def set_train_mode(self, mode: bool):
-        self.train_mode = mode
     
 
 class SimpleSequentialEnv(gym.Env):
@@ -419,13 +351,21 @@ class SimpleSequentialEnv(gym.Env):
 
 
 if __name__ == "__main__":
-    data = nlp_preprocessing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train.pkl")
-    pool = PartialReadingDataPoolWithTokens(data, "review", "label", 8)
-    env = TextEnvClf(pool, int(1e+5), "score", True)
+    data = nlp_preprocessing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")
+    pool = PartialReadingDataPoolWithBertTokens(data, "review", "label", 8)
+    env = TextEnvClfForBertModels(pool, int(1e+5), "score", True)
     check_env(env)
     print(env.current_observation)
     print(env.current_state)
+    print("="*40)
+    print(env.current_state["input_id"])
+    print("="*40)
+    print(env.current_state["attn_mask"])
+    print("="*40)
     print(env.step(0))
+    print(env.step(0))
+    print(env.current_state["input_id"])
+    print("="*40)
     print(env.step(2))
     
 
