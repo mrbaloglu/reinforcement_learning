@@ -9,8 +9,8 @@ import copy
 import torch
 
 import sys
-# sys.path.append("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning") # macos
-sys.path.append("C:\\Users\\mrbal\\Documents\\NLP\\RL\\basic_reinforcement_learning")
+sys.path.append("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning") # macos
+# sys.path.append("C:\\Users\\mrbal\\Documents\\NLP\\RL\\basic_reinforcement_learning") # windows
 
 
 from NLP_utils import preprocessing as nlp_preprocessing
@@ -214,7 +214,54 @@ class TextEnvClfForBertModels(BaseTextEnvClf):
     
     def __len__(self) -> int:
         return len(self.pool)
+
+
+class TextEnvClfForBertModels(BaseTextEnvClf):
     
+    def __init__(self, data_pool: PartialReadingDataPool, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False):
+        super().__init__(data_pool, max_time_steps, reward_fn, random_walk)
+        self.current_state = self.update_current_state()
+        self.n_sentences_in_obs = len(self.current_observation.get_sample_input_id_vecs())
+        self._set_spaces()
+        print("---- Inside constructor ---------")
+        print("Input id shape: ", self.current_state["input_id"].shape, type(self.current_state["input_id"]))
+        print("Attn mask shape: ", self.current_state["attn_mask"].shape, type(self.current_state["attn_mask"]))
+        print("------------- End Constructor-------------")
+
+    
+    def update_current_state(self):
+        current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()
+        current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
+
+        self.current_label = self.current_observation.get_label_enc()
+        # self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
+        # self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
+        return {"input_id": current_input_id_vecs[self.current_state_ix].astype(int), 
+                "attn_mask": current_attn_mask_vecs[self.current_state_ix].astype(int)}
+    
+    def _set_spaces(self):
+        self.observation_space = spaces.Dict(
+            {
+                "input_id": spaces.Box(0, self.pool.vocab_size, shape=(self.pool.window_size, ), dtype=int),
+                "attn_mask": spaces.Box(0, 2, shape=(self.pool.window_size, ), dtype=int) 
+            }
+        )
+    
+
+    def step(self, action: int):
+        reward, done, info = super().step(action)
+        self.current_state = self.update_current_state()
+
+        return self.current_state, reward, done, info 
+
+    def reset(self):
+        super().reset()
+        self.current_state = self.update_current_state()
+        return self.current_state
+    
+    def __len__(self) -> int:
+        return len(self.pool)
+  
 
 class SimpleSequentialEnv(gym.Env):
     

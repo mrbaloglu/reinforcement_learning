@@ -18,7 +18,7 @@ else:
 
 import sys
 sys.path.append(root_path)
-from RL_for_NLP.text_environments import TextEnvClfBert, TextEnvClf
+from RL_for_NLP.text_environments import TextEnvClfBertTokens, TextEnvClf, TextEnvClfForBertModels
 from RL_for_NLP.text_reward_functions import calculate_stats_from_cm
 
 from RL_for_NLP.text_data_pools import PartialReadingDataPoolWithTokens, PartialReadingDataPoolWithBertTokens

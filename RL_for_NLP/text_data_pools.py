@@ -1,7 +1,17 @@
-import sys
-# sys.path.append("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning") # macos
-sys.path.append("C:\\Users\\mrbal\\Documents\\NLP\\RL\\basic_reinforcement_learning")
+root_path = "C:\\Users\\mrbal\\Documents\\NLP\\RL\\basic_reinforcement_learning"
+info_path = ""
+sep = '/'
+import platform
+if platform.system() == "Windows":
+    info_path = root_path + "\\NLP_datasets\\RT_Polarity\\data_info_bert_windows.json"
+    sep = '\\'
+    print("Running on windows...")
+else:
+    root_path = "/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning"
+    info_path = root_path + "/NLP_datasets/RT_Polarity/data_info_bert.json"
 
+import sys
+sys.path.append(root_path)
 import numpy as np
 import pandas as pd
 import NLP_utils.preprocessing as nlp_processing
@@ -14,7 +24,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from tqdm import tqdm
 
-from RL_for_NLP.observation import Observation, BertObservation
+from RL_for_NLP.observation import Observation, BertObservation, BertObsOnlyTokens
 
 class PartialReadingDataPool(ABC):
     def __init__(self, data: pd.DataFrame, text_col: str, target_col: str, window_size: int, **kwargs):
@@ -119,8 +129,15 @@ class PartialReadingDataPoolWithBertTokens(PartialReadingDataPool):
             target_col (str): name of the target column (dataframe must contain a column named 'target_col_str' 
                                 having the names of the labels.)
             window_size (int): Number of words in each state to be created for an environment.
+            kwargs: if mask = False is given as an input in kwargs, attention masks will not be used in observations of pool.
         """
-        required_cols = [text_col + "_bert_input_ids", text_col + "_bert_token_type_ids", text_col + "_bert_attention_mask"]
+        required_cols = [text_col + "_bert_input_ids"]
+        if kwargs.get("mask") == False:
+            self.mask = False
+        else:
+            self.mask = True
+            required_cols.append(text_col + "_bert_attention_mask")
+        
         assert set(required_cols) < set(data.columns), \
             f"Dataframe must contain columns named {required_cols}, but at least one of them is missing."
 
@@ -128,6 +145,9 @@ class PartialReadingDataPoolWithBertTokens(PartialReadingDataPool):
             f"Dataframe must contain a column named {target_col}_str for label meanings."
         
         super().__init__(data, text_col, target_col, window_size, kwargs=kwargs)
+
+        
+
         self.populate_samples(data, text_col, target_col, window_size, kwargs=kwargs)
     
     # populate the samples with bert tokens, attention masks and labels
@@ -140,7 +160,9 @@ class PartialReadingDataPoolWithBertTokens(PartialReadingDataPool):
         
 
         input_id_vecs = np.stack(data[text_col + "_bert_input_ids"].copy().values).astype(np.int32)
-        attn_mask_vecs = np.stack(data[text_col + "_bert_attention_mask"].copy().values).astype(np.int32)
+        attn_mask_vecs = None
+        if self.mask:
+            attn_mask_vecs = np.stack(data[text_col + "_bert_attention_mask"].copy().values).astype(np.int32)
         
         self.n_samples = len(input_id_vecs)
         self.vocab_size = np.max(input_id_vecs)
@@ -149,7 +171,8 @@ class PartialReadingDataPoolWithBertTokens(PartialReadingDataPool):
         if pad_size > 0:
             pad_m = np.zeros((self.n_samples, pad_size))
             input_id_vecs = np.concatenate((input_id_vecs, pad_m), axis=1)
-            attn_mask_vecs = np.concatenate((attn_mask_vecs, pad_m), axis=1)
+            if self.mask:
+                attn_mask_vecs = np.concatenate((attn_mask_vecs, pad_m), axis=1)
             self.max_len = input_id_vecs.shape[1]
         
         
@@ -157,10 +180,16 @@ class PartialReadingDataPoolWithBertTokens(PartialReadingDataPool):
         for j in tqdm(range(input_id_vecs.shape[0]), desc="Padding the data and populating samples..."):
             sample_str = data[text_col][j]
             sample_input_id_vecs = np.split(input_id_vecs[j], self.max_len / self.window_size)
-            sample_attn_mask_vecs = np.split(attn_mask_vecs[j], self.max_len / self.window_size)
+            sample_attn_mask_vecs = None
+            if self.mask:
+                sample_attn_mask_vecs = np.split(attn_mask_vecs[j], self.max_len / self.window_size)
             label_enc = data[target_col][j]
             label_str = data[target_col + "_str"][j]
-            obs = BertObservation(sample_str, sample_input_id_vecs, sample_attn_mask_vecs, label_str, label_enc)
+            if self.mask:
+                obs = BertObservation(sample_str, sample_input_id_vecs, sample_attn_mask_vecs, label_str, label_enc)
+            else: 
+                obs = BertObsOnlyTokens(sample_str, sample_input_id_vecs, label_str, label_enc)
+
             self.samples.append(obs)
 
 
@@ -225,30 +254,31 @@ class SimpleSequentialDataPool:
 if __name__ == "__main__":
     
     ############## pool with regular tokens ############################
-    data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train.pkl")
-    print(data_train.head())
-    pool = PartialReadingDataPoolWithTokens(data_train, "review", "label", 16)
-    print(pool.vocab_size)
-    ix = np.random.randint(len(pool))
-    obs = pool.create_episode(ix)
-    print(obs)
-    print(obs.get_sample_vecs())
-    print(obs.get_label_enc())
-    ######################################################################
-
-    ############## pool with bert tokens #################################
-    # data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")
+    # data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train.pkl")
     # print(data_train.head())
-
-    # pool = PartialReadingDataPoolWithBertTokens(data_train, "review", "label", 11)
+    # pool = PartialReadingDataPoolWithTokens(data_train, "review", "label", 16)
     # print(pool.vocab_size)
     # ix = np.random.randint(len(pool))
     # obs = pool.create_episode(ix)
     # print(obs)
-    # print(obs.get_sample_input_id_vecs())
-    # print(obs.get_sample_attn_mask_vecs())
+    # print(obs.get_sample_vecs())
     # print(obs.get_label_enc())
-    # print(obs.get_label_str())
+    ######################################################################
+
+    ############## pool with bert tokens #################################
+    data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")
+    print(data_train.head())
+
+    pool = PartialReadingDataPoolWithBertTokens(data_train, "review", "label", 11, mask=False)
+    print(pool.vocab_size)
+    ix = np.random.randint(len(pool))
+    obs = pool.create_episode(ix)
+    print(obs)
+    print("="*40)
+    print(obs.get_sample_input_id_vecs())
+    print(obs.get_sample_attn_mask_vecs())
+    print(obs.get_label_enc())
+    print(obs.get_label_str())
     
 
     # pool = SimpleSequentialDataPool(1000, 10, 2)
