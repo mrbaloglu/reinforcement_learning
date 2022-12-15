@@ -3,7 +3,7 @@ from gym import spaces
 from stable_baselines3.common.env_checker import check_env
 import numpy as np
 import pandas as pd
-from typing import Union, Tuple
+from typing import Union, Tuple, List
 import pickle
 import copy
 import torch
@@ -207,9 +207,10 @@ class TextEnvClfBert(gym.Env):
         reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix, self.seen_samples+1)
         step_reward = reward * 0.5
         self.last_reward = reward
-
-        state_now_phi = self.state_extractor(torch.Tensor(self.current_state_input_id))
-        pred_next_phi = self.next_predictor(state_now_phi)
+        
+        if self.train_mode:
+            state_now_phi = self.state_extractor(torch.Tensor(self.current_state_input_id))
+            pred_next_phi = self.next_predictor(state_now_phi)
         
         if action_str in self.pool.possible_actions: # e.g action_str == "good" or "bad":
             if self.current_sample_ix != None:
@@ -235,13 +236,12 @@ class TextEnvClfBert(gym.Env):
         self.current_state_token_type = self.current_token_type_vecs[self.current_state_ix]
         self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
         
-        state_next_phi = self.state_extractor(torch.Tensor(self.current_state_input_id))
-        loss = self.state_loss(pred_next_phi, state_next_phi)
         if self.train_mode:
+            state_next_phi = self.state_extractor(torch.Tensor(self.current_state_input_id))
+            loss = self.state_loss(pred_next_phi, state_next_phi)    
             loss.backward()
             self.itv_optimizer.step()
-
-        step_reward += 0.5 * loss.item()
+            step_reward += 0.5 * loss.item()
         
 
         
@@ -309,11 +309,6 @@ class SimpleSequentialEnv(gym.Env):
         self.random_walk = random_walk
         self.train_mode = True
 
-        self.state_extractor = itv_models.DenseStateFeatureExtractor(self.pool.window_size, 10, [5, 5])
-        self.next_predictor = itv_models.NextStatePredictor(self.pool.window_size, [30, 30])
-        self.state_loss = torch.nn.MSELoss()
-        self.itv_optimizer = torch.optim.Adam(list(self.state_extractor.parameters()) + list(self.next_predictor.parameters()), lr = 0.001)
-        
         self.current_sample_ix = 0
         if self.random_walk:
             self.current_sample_ix = None
@@ -330,6 +325,13 @@ class SimpleSequentialEnv(gym.Env):
         self.action_space = ActionSpace(action_list)
         self.confusion_matrix = np.zeros((len(self.pool.possible_actions), len(self.pool.possible_actions)))
         self.last_reward = 0
+
+        self.state_extractor = itv_models.DenseStateFeatureExtractor(self.pool.window_size, 3, [5, 5])
+        self.next_predictor = itv_models.NextStatePredictor(3, [30, 30])
+        self.action_predictor = itv_models.NextActionPredictor(3, [10, 10], len(self.action_space))
+        self.state_loss = torch.nn.MSELoss()
+        self.itv_optimizer = torch.optim.Adam(list(self.state_extractor.parameters()) + list(self.next_predictor.parameters()), lr = 0.001)
+        
         
         self.max_time_steps = max_time_steps
 
@@ -356,9 +358,9 @@ class SimpleSequentialEnv(gym.Env):
         step_reward = reward * 0.5
         self.last_reward = reward
 
-
-        state_now_phi = self.state_extractor(torch.Tensor(self.current_state))
-        pred_next_phi = self.next_predictor(state_now_phi)
+        if self.train_mode:
+            state_now_phi = self.state_extractor(torch.Tensor(self.current_state))
+            pred_next_phi = self.next_predictor(state_now_phi)
         
         if action_str in self.pool.possible_actions: # e.g action_str == "good" or "bad":
             if self.current_sample_ix != None:
@@ -378,12 +380,14 @@ class SimpleSequentialEnv(gym.Env):
         self.current_state = self.current_observation[self.current_state_ix]
 
         state_next_phi = self.state_extractor(torch.Tensor(self.current_state))
-        loss = self.state_loss(pred_next_phi, state_next_phi)
+        next_action_pred = self.action_predictor.predict(torch.cat([state_now_phi, state_next_phi], dim=-1))
+
+        
         if self.train_mode:
+            loss = self.state_loss(pred_next_phi, state_next_phi)
             loss.backward()
             self.itv_optimizer.step()
-
-        step_reward += 0.5 * loss.item()
+            step_reward += 0.5 * loss.item()
 
 
 
@@ -408,7 +412,8 @@ class SimpleSequentialEnv(gym.Env):
 
         self.state_extractor = itv_models.DenseStateFeatureExtractor(self.pool.window_size, 10, [5, 5])
         self.next_predictor = itv_models.NextStatePredictor(self.pool.window_size, [30, 30])
-
+        self.action_predictor = itv_models.NextActionPredictor(3, [10, 10], len(self.action_space))
+        
         return self.current_state
     
     def set_train_mode(self, mode: bool):

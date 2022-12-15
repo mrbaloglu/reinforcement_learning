@@ -131,5 +131,5 @@ class PartialReadingRewardScore(PartialReadingReward):
                 tmp = -1.25
             return tmp, confusion_matrix
         else:
-            return -0.02, confusion_matrix
+            return -0.0, confusion_matrix
         
