@@ -5,7 +5,7 @@ from torch.distributions import Categorical
 
 import numpy as np
 from typing import Union, List
-from torchtext.vocab import GloVe
+# from torchtext.vocab import GloVe
 import transformers
 import gym
 

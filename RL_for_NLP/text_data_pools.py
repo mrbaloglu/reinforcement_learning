@@ -1,5 +1,6 @@
 import sys
-sys.path.append("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning")
+# sys.path.append("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning") # macos
+sys.path.append("C:\\Users\\mrbal\\Documents\\NLP\\RL\\basic_reinforcement_learning")
 
 import numpy as np
 import pandas as pd
@@ -11,14 +12,42 @@ from sklearn.model_selection import train_test_split
 from typing import List, Tuple
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from tqdm import tqdm
 
 from RL_for_NLP.observation import Observation, BertObservation
 
-
-
-class PartialReadingDataPoolWithWord2Vec:
+class PartialReadingDataPool(ABC):
+    def __init__(self, data: pd.DataFrame, text_col: str, target_col: str, window_size: int, **kwargs):
+        self.window_size = window_size
+        self.n_samples = len(data)
+        self.samples = []
+        self.labels = data[target_col].copy().values.astype(np.int32)
+        self.max_len = -1 # will be updated with populate_samples function
+        self.vocab_size = -1 # will be updated with populate_samples function
+        self.possible_actions = list(data[target_col + "_str"].unique())
     
-    def __init__(self, data: pd.DataFrame, text_col: str, tokenized_col: str, target_col: str, window_size: int, **kwargs):
+    def create_episode(self, idx: int = None): # -> Tuple[List[torch.Tensor], torch.Tensor]:
+        if idx == None:
+            idx = np.random.randint(self.n_samples)
+
+        idx = idx % self.n_samples
+
+        return self.samples[idx]
+
+    # populate the samples and calculate the maximum sentence length in pool
+    @abstractmethod
+    def populate_samples(self, data: pd.DataFrame, text_col: str, target_col: str, window_size: int, **kwargs):
+        raise NotImplementedError
+    
+    def __len__(self) -> int:
+        return self.n_samples
+    
+
+
+
+class PartialReadingDataPoolWithTokens(PartialReadingDataPool):
+    
+    def __init__(self, data: pd.DataFrame, text_col: str, target_col: str, window_size: int, **kwargs):
         """Create a data pool for partial reading. Given a dataframe with processed, tokenized text inputs, the pool creates
         episodes for partial reading. (outputs chunks of text in selected length with label)
 
@@ -29,31 +58,42 @@ class PartialReadingDataPoolWithWord2Vec:
                                                              | good job |[25, 79]|   1   |  positive |
                                                              -----------------------------------------)
             text_col (str): name of the text column
-            tokenized_col (str): name of the tokenized column
+            -- data must also contain a column named {text_col}_tokenized, containing arrays of the same length (tokenized sentences)
             target_col (str): name of the target column (dataframe must contain a column named 'target_col_str' 
                                 having the names of the labels.)
             window_size (int): Number of words in each state to be created for an environment.
         """
         assert target_col + "_str" in data.columns, \
-            f"Dataframe must contain a column named {target_col}_str having the names of the labels."
+            f"Dataframe must contain a column named '{target_col}_str' having the names of the labels."
         
-        self.max_len = len(data[tokenized_col][0])
-        self.window_size = window_size  
-        self.samples = []
+        assert text_col + "_tokenized" in data.columns, \
+            f"Dataframe must contain a column named '{text_col}_tokenized' having the names of the labels."
+        
+        super().__init__(data, text_col, target_col, window_size, kwargs=kwargs)
+
+        self.populate_samples(data, text_col, target_col, window_size, kwargs=kwargs)
+
+    # populate each sample with token vectors and corresponding labels.
+    def populate_samples(self, data: pd.DataFrame, text_col: str, target_col: str, window_size: int, **kwargs):
+
+        self.max_len = len(data[text_col + "_tokenized"][0])
+        print(f"Maximum sentence length in pool: {self.max_len}")
         assert window_size < self.max_len, \
             f"Number of words  to be read in each step (window_size) should be smaller than maximum sentence length, got window_size: {window_size}, max_len: {self.max_len}."
         
-        self.possible_actions = list(data[target_col + "_str"].unique())
-        vecs = np.stack(data[tokenized_col].copy().values).astype(np.int32)
+        
+        vecs = np.stack(data[text_col + "_tokenized"].copy().values).astype(np.int32)
         self.n_samples = len(vecs)
+        self.vocab_size = np.max(vecs) + 1
         pad_size = self.window_size - (self.max_len % self.window_size)
+
         if pad_size > 0:
             pad_m = np.zeros((self.n_samples, pad_size))
             vecs = np.concatenate((vecs, pad_m), axis=1)
             self.max_len = vecs.shape[1]
         
         
-        for j in range(vecs.shape[0]):
+        for j in tqdm(range(vecs.shape[0]), desc="Padding the data and populating samples..."):
             sample_str = data[text_col][j]
             sample_vecs = np.split(vecs[j], self.max_len / self.window_size)
             label_enc = data[target_col][j]
@@ -61,28 +101,7 @@ class PartialReadingDataPoolWithWord2Vec:
             obs = Observation(sample_str, sample_vecs, label_str, label_enc)
             self.samples.append(obs)
         
-        
-        # self.vecs = torch.from_numpy(self.vecs).float()
-        self.labels = data[target_col].copy().values.astype(np.int32)# torch.from_numpy(data[target_col].copy().values).int()
-            
-    def create_episode(self, idx: int = None): # -> Tuple[List[torch.Tensor], torch.Tensor]:
-        if idx == None:
-            idx = np.random.randint(self.n_samples)
-
-        idx = idx % self.n_samples
-
-        return self.samples[idx]
-
-
-    """def __getitem__(self, idx) -> Tuple[List[torch.Tensor], torch.Tensor]:
-        states, label = self.create_episode(idx)
-        return states, label"""
-    
-    def __len__(self) -> int:
-        return self.n_samples
-    
-
-class PartialReadingDataPoolWithBertTokens:
+class PartialReadingDataPoolWithBertTokens(PartialReadingDataPool):
     
     def __init__(self, data: pd.DataFrame, text_col: str, target_col: str, window_size: int, **kwargs):
         """Create a data pool for partial reading. Given a dataframe with processed, bert-tokenized text inputs, the pool creates
@@ -96,7 +115,7 @@ class PartialReadingDataPoolWithBertTokens:
                 | good job | [25, 79, ..., 0, 0]     |  [1, 1, 1, ..., 0, 0]        |  [0, 0, ..., 0]              |   1   |  positive |
                 -----------------------------------------)
             text_col (str): name of the text column 
-                (df must contain ext_col_bert_input_ids, text_col_bert_token_type_ids, text_col_bert_attention_mask as columns as well)
+                (df must contain columns named {text_col}_bert_input_ids, {text_col}_bert_token_type_ids, {text_col}_bert_attention_mask)
             target_col (str): name of the target column (dataframe must contain a column named 'target_col_str' 
                                 having the names of the labels.)
             window_size (int): Number of words in each state to be created for an environment.
@@ -107,61 +126,43 @@ class PartialReadingDataPoolWithBertTokens:
 
         assert target_col + "_str" in data.columns, \
             f"Dataframe must contain a column named {target_col}_str for label meanings."
+        
+        super().__init__(data, text_col, target_col, window_size, kwargs=kwargs)
+        self.populate_samples(data, text_col, target_col, window_size, kwargs=kwargs)
+    
+    # populate the samples with bert tokens, attention masks and labels
+    def populate_samples(self, data: pd.DataFrame, text_col: str, target_col: str, window_size: int, **kwargs):
 
         self.max_len = len(data[text_col+"_bert_input_ids"][0])
         print(f"Maximum sentence length in pool: {self.max_len}")
-        self.window_size = window_size  
-        self.samples = []
-        assert window_size < self.max_len, \
+        assert window_size <= self.max_len, \
             f"Number of words  to be read in each step (window_size) should be smaller than maximum sentence length, got window_size: {window_size}, max_len: {self.max_len}."
         
-        self.possible_actions = list(data[target_col + "_str"].unique())
 
         input_id_vecs = np.stack(data[text_col + "_bert_input_ids"].copy().values).astype(np.int32)
-        token_type_vecs = np.stack(data[text_col + "_bert_token_type_ids"].copy().values).astype(np.int32)
         attn_mask_vecs = np.stack(data[text_col + "_bert_attention_mask"].copy().values).astype(np.int32)
         
         self.n_samples = len(input_id_vecs)
+        self.vocab_size = np.max(input_id_vecs)
         pad_size = self.window_size - (self.max_len % self.window_size)
        
         if pad_size > 0:
             pad_m = np.zeros((self.n_samples, pad_size))
             input_id_vecs = np.concatenate((input_id_vecs, pad_m), axis=1)
-            token_type_vecs = np.concatenate((token_type_vecs, pad_m), axis=1)
             attn_mask_vecs = np.concatenate((attn_mask_vecs, pad_m), axis=1)
             self.max_len = input_id_vecs.shape[1]
         
         
 
-        for j in range(input_id_vecs.shape[0]):
+        for j in tqdm(range(input_id_vecs.shape[0]), desc="Padding the data and populating samples..."):
             sample_str = data[text_col][j]
             sample_input_id_vecs = np.split(input_id_vecs[j], self.max_len / self.window_size)
-            sample_token_type_vecs = np.split(token_type_vecs[j], self.max_len / self.window_size)
             sample_attn_mask_vecs = np.split(attn_mask_vecs[j], self.max_len / self.window_size)
             label_enc = data[target_col][j]
             label_str = data[target_col + "_str"][j]
-            obs = BertObservation(sample_str, sample_input_id_vecs, sample_token_type_vecs, sample_attn_mask_vecs, label_str, label_enc)
+            obs = BertObservation(sample_str, sample_input_id_vecs, sample_attn_mask_vecs, label_str, label_enc)
             self.samples.append(obs)
-        
-        
-        # self.vecs = torch.from_numpy(self.vecs).float()
-        self.labels = data[target_col].copy().values.astype(np.int32)# torch.from_numpy(data[target_col].copy().values).int()
-            
-    def create_episode(self, idx: int = None): # -> Tuple[List[torch.Tensor], torch.Tensor]:
-        if idx == None:
-            idx = np.random.randint(self.n_samples)
 
-        idx = idx % self.n_samples
-
-        return self.samples[idx]
-
-
-    """def __getitem__(self, idx) -> Tuple[List[torch.Tensor], torch.Tensor]:
-        states, label = self.create_episode(idx)
-        return states, label"""
-    
-    def __len__(self) -> int:
-        return self.n_samples
 
 
 class SimpleSequentialDataPool:
@@ -224,32 +225,33 @@ class SimpleSequentialDataPool:
 if __name__ == "__main__":
     
     ############## pool with regular tokens ############################
-    # data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train.pkl")
-    # print(data_train.head())
-    # pool = PartialReadingDataPoolWithWord2Vec(data_train, "review", "review_tokenized", "label", 16)
-
-    # ix = np.random.randint(len(pool))
-    # obs = pool.create_episode(ix)
-    # print(obs)
-    # print(obs.get_sample_vecs())
-    # print(obs.get_label_enc())
+    data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train.pkl")
+    print(data_train.head())
+    pool = PartialReadingDataPoolWithTokens(data_train, "review", "label", 16)
+    print(pool.vocab_size)
+    ix = np.random.randint(len(pool))
+    obs = pool.create_episode(ix)
+    print(obs)
+    print(obs.get_sample_vecs())
+    print(obs.get_label_enc())
     ######################################################################
 
     ############## pool with bert tokens #################################
     # data_train = nlp_processing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")
     # print(data_train.head())
 
-    # pool = PartialReadingDataPoolWithBertTokens(data_train, "review", "label", "good", 11)
+    # pool = PartialReadingDataPoolWithBertTokens(data_train, "review", "label", 11)
+    # print(pool.vocab_size)
     # ix = np.random.randint(len(pool))
     # obs = pool.create_episode(ix)
     # print(obs)
     # print(obs.get_sample_input_id_vecs())
-    # print(obs.get_sample_token_type_vecs())
     # print(obs.get_sample_attn_mask_vecs())
     # print(obs.get_label_enc())
     # print(obs.get_label_str())
+    
 
-    pool = SimpleSequentialDataPool(1000, 10, 2)
-    obs = pool.create_episode()
-    print(obs)
+    # pool = SimpleSequentialDataPool(1000, 10, 2)
+    # obs = pool.create_episode()
+    # print(obs)
 

@@ -1,8 +1,6 @@
 from typing import List
 from gym.spaces.discrete import Discrete
 import pandas as pd
-import sys
-sys.path.append("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning")
 
 
 class ActionSpace(Discrete):
