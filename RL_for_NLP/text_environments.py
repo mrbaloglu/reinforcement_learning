@@ -3,14 +3,14 @@ from gym import spaces
 from stable_baselines3.common.env_checker import check_env
 import numpy as np
 import pandas as pd
-from typing import Union, Tuple
+from typing import Union, Tuple, List
 import pickle
 import copy
 import torch
 
 import sys
-# sys.path.append("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning") # macos
-sys.path.append("C:\\Users\\mrbal\\Documents\\NLP\\RL\\basic_reinforcement_learning")
+sys.path.append("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning") # macos
+# sys.path.append("C:\\Users\\mrbal\\Documents\\NLP\\RL\\basic_reinforcement_learning") # windows
 
 
 from NLP_utils import preprocessing as nlp_preprocessing
@@ -214,7 +214,54 @@ class TextEnvClfForBertModels(BaseTextEnvClf):
     
     def __len__(self) -> int:
         return len(self.pool)
+
+
+class TextEnvClfForBertModels(BaseTextEnvClf):
     
+    def __init__(self, data_pool: PartialReadingDataPool, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False):
+        super().__init__(data_pool, max_time_steps, reward_fn, random_walk)
+        self.current_state = self.update_current_state()
+        self.n_sentences_in_obs = len(self.current_observation.get_sample_input_id_vecs())
+        self._set_spaces()
+        print("---- Inside constructor ---------")
+        print("Input id shape: ", self.current_state["input_id"].shape, type(self.current_state["input_id"]))
+        print("Attn mask shape: ", self.current_state["attn_mask"].shape, type(self.current_state["attn_mask"]))
+        print("------------- End Constructor-------------")
+
+    
+    def update_current_state(self):
+        current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()
+        current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
+
+        self.current_label = self.current_observation.get_label_enc()
+        # self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
+        # self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
+        return {"input_id": current_input_id_vecs[self.current_state_ix].astype(int), 
+                "attn_mask": current_attn_mask_vecs[self.current_state_ix].astype(int)}
+    
+    def _set_spaces(self):
+        self.observation_space = spaces.Dict(
+            {
+                "input_id": spaces.Box(0, self.pool.vocab_size, shape=(self.pool.window_size, ), dtype=int),
+                "attn_mask": spaces.Box(0, 2, shape=(self.pool.window_size, ), dtype=int) 
+            }
+        )
+    
+
+    def step(self, action: int):
+        reward, done, info = super().step(action)
+        self.current_state = self.update_current_state()
+
+        return self.current_state, reward, done, info 
+
+    def reset(self):
+        super().reset()
+        self.current_state = self.update_current_state()
+        return self.current_state
+    
+    def __len__(self) -> int:
+        return len(self.pool)
+  
 
 class SimpleSequentialEnv(gym.Env):
     
@@ -234,11 +281,6 @@ class SimpleSequentialEnv(gym.Env):
         self.random_walk = random_walk
         self.train_mode = True
 
-        self.state_extractor = itv_models.DenseStateFeatureExtractor(self.pool.window_size, 10, [5, 5])
-        self.next_predictor = itv_models.NextStatePredictor(self.pool.window_size, [30, 30])
-        self.state_loss = torch.nn.MSELoss()
-        self.itv_optimizer = torch.optim.Adam(list(self.state_extractor.parameters()) + list(self.next_predictor.parameters()), lr = 0.001)
-        
         self.current_sample_ix = 0
         if self.random_walk:
             self.current_sample_ix = None
@@ -255,6 +297,13 @@ class SimpleSequentialEnv(gym.Env):
         self.action_space = ActionSpace(action_list)
         self.confusion_matrix = np.zeros((len(self.pool.possible_actions), len(self.pool.possible_actions)))
         self.last_reward = 0
+
+        self.state_extractor = itv_models.DenseStateFeatureExtractor(self.pool.window_size, 3, [5, 5])
+        self.next_predictor = itv_models.NextStatePredictor(3, [30, 30])
+        self.action_predictor = itv_models.NextActionPredictor(3, [10, 10], len(self.action_space))
+        self.state_loss = torch.nn.MSELoss()
+        self.itv_optimizer = torch.optim.Adam(list(self.state_extractor.parameters()) + list(self.next_predictor.parameters()), lr = 0.001)
+        
         
         self.max_time_steps = max_time_steps
 
@@ -281,9 +330,9 @@ class SimpleSequentialEnv(gym.Env):
         step_reward = reward * 0.5
         self.last_reward = reward
 
-
-        state_now_phi = self.state_extractor(torch.Tensor(self.current_state))
-        pred_next_phi = self.next_predictor(state_now_phi)
+        if self.train_mode:
+            state_now_phi = self.state_extractor(torch.Tensor(self.current_state))
+            pred_next_phi = self.next_predictor(state_now_phi)
         
         if action_str in self.pool.possible_actions: # e.g action_str == "good" or "bad":
             if self.current_sample_ix != None:
@@ -303,12 +352,14 @@ class SimpleSequentialEnv(gym.Env):
         self.current_state = self.current_observation[self.current_state_ix]
 
         state_next_phi = self.state_extractor(torch.Tensor(self.current_state))
-        loss = self.state_loss(pred_next_phi, state_next_phi)
+        next_action_pred = self.action_predictor.predict(torch.cat([state_now_phi, state_next_phi], dim=-1))
+
+        
         if self.train_mode:
+            loss = self.state_loss(pred_next_phi, state_next_phi)
             loss.backward()
             self.itv_optimizer.step()
-
-        step_reward += 0.5 * loss.item()
+            step_reward += 0.5 * loss.item()
 
 
 
@@ -333,7 +384,8 @@ class SimpleSequentialEnv(gym.Env):
 
         self.state_extractor = itv_models.DenseStateFeatureExtractor(self.pool.window_size, 10, [5, 5])
         self.next_predictor = itv_models.NextStatePredictor(self.pool.window_size, [30, 30])
-
+        self.action_predictor = itv_models.NextActionPredictor(3, [10, 10], len(self.action_space))
+        
         return self.current_state
     
     def set_train_mode(self, mode: bool):

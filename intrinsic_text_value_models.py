@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions import Categorical
+
 from typing import List, Union
 
 class DenseStateFeatureExtractor(nn.Module):
@@ -137,4 +139,36 @@ class NextStatePredictor(nn.Module):
             x = self.fc1(x)
         
         return x
+
+class NextActionPredictor(nn.Module):
+    def __init__(self, state_dim: int, hidden_layer_dims: List[int], output_dim: int):
+        super().__init__()
+        self.hidden_layers = []
+        if len(hidden_layer_dims) > 0:
+            self.fc1 = nn.Linear(state_dim*2, hidden_layer_dims[0])
+            for ii in range(len(hidden_layer_dims) - 1):
+                hidden_layer = nn.Linear(hidden_layer_dims[ii], hidden_layer_dims[ii+1])
+                self.hidden_layers.append(hidden_layer)
+            out_layer = nn.Linear(hidden_layer_dims[-1], state_dim)
+            self.hidden_layers.append(out_layer)
+        else: 
+            self.fc1 = nn.Linear(state_dim*2, output_dim)
+        
+    def forward(self, x):
+        if len(self.hidden_layers) > 0:
+            x = F.relu(self.fc1(x))
+            for layer_ix in range(len(self.hidden_layers)-1):
+                x = F.relu(self.hidden_layers[layer_ix](x))
+            
+            x = F.softmax(self.hidden_layers[-1](x))
+        else:
+            x = F.softmax(self.fc1(x), dim=1)
+        
+        return x
+    
+    def predict(self, state):
+        probs = self.forward(state)#.cpu()
+        m = Categorical(probs)
+        action = m.sample()
+        return action.item(), m.log_prob(action)
 
