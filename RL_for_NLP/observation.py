@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List
+from typing import List, Optional
 from dataclasses import dataclass
 
 
@@ -27,6 +27,7 @@ class Observation:
 
 @dataclass(init=True)
 class BertObservation:
+    
     sample_str: str
     sample_input_id_vecs: List[np.ndarray]
     sample_attn_mask_vecs: List[np.ndarray]
@@ -40,7 +41,7 @@ class BertObservation:
         return self.sample_input_id_vecs
     
     
-    def get_sample_attn_mask_vecs(self) -> List[np.ndarray]:
+    def get_sample_attn_mask_vecs(self) -> Optional[List[np.ndarray]]:
         return self.sample_attn_mask_vecs
 
     def get_label_str(self) -> str:

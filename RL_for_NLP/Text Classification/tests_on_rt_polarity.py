@@ -18,7 +18,7 @@ else:
 
 import sys
 sys.path.append(root_path)
-from RL_for_NLP.text_environments import TextEnvClfBert, TextEnvClf
+from RL_for_NLP.text_environments import TextEnvClfBertTokens, TextEnvClf, TextEnvClfForBertModels
 from RL_for_NLP.text_reward_functions import calculate_stats_from_cm
 
 from RL_for_NLP.text_data_pools import PartialReadingDataPoolWithTokens, PartialReadingDataPoolWithBertTokens
@@ -29,6 +29,8 @@ import policy_networks as pn
 import torch
 from torch.optim import Adam
 import mlflow
+from RL_for_NLP.text_reward_functions import calculate_stats_from_cm
+
 
 from stable_baselines3 import A2C, DQN, PPO
 from stable_baselines3.common.evaluation import evaluate_policy
@@ -55,6 +57,7 @@ data_train = nlp_processing.openDfFromPickle(data_info["path"] + sep + "rt-polar
 # declare some hyperparameters
 WINDOW_SIZE = 16
 MAX_STEPS = int(1e+5)
+TRAIN_STEPS = int(1e+3)
 VOCAB_SIZE = data_info["vocab_size"]
 REWARD_FN = "score"
 print(f"Vocab size: {VOCAB_SIZE}")
@@ -115,9 +118,9 @@ def eval_model(model, env, total_timesteps=10000):
 
 policy_kwargs = dict(
     features_extractor_class=pn.RNNExtractor,
-    features_extractor_kwargs=dict(vocab_size = VOCAB_SIZE, embed_dim = 16,
-                 rnn_type = "gru", rnn_hidden_size = 8, rnn_hidden_out = 64, rnn_bidirectional = True,
-                 features_dim = 16, units = 64),
+    features_extractor_kwargs=dict(vocab_size = VOCAB_SIZE, embed_dim = 5,
+                 rnn_type = "gru", rnn_hidden_size = 2, rnn_hidden_out = 2, rnn_bidirectional = True,
+                 features_dim = 10, units = 10),
 )
 
 

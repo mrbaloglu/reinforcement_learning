@@ -3,6 +3,7 @@ from tqdm import tqdm
 
 import numpy as np
 from collections import deque
+from RL_for_NLP.text_reward_functions import calculate_stats_from_cm
 
 from typing import List
 from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
@@ -13,16 +14,29 @@ def reinforce_algorithm(env, policy, optimizer, n_training_episodes, max_t, gamm
     # Help us to calculate the score during the training
     scores_deque = deque(maxlen=100)
     scores = []
+    actions = []
     avg_reward = 0.
-    # Line 3 of pseudocode
-    pbar = tqdm(range(n_training_episodes))
+    n_next = 0
+    n_pos = 0
+    n_neg = 0
+    possible_actions = env.pool.possible_actions
+    stats = {}
+    pbar = range(n_training_episodes)
     for i_episode in pbar:
         saved_log_probs = []
         rewards = []
-        state = env.reset()
-        # Line 4 of pseudocode
-        for t in range(max_t):
+        state, *_ = env.step(0) # go to the next sample
+        
+        for t in tqdm(range(max_t)):
             action, log_prob = policy.predict(state)
+            action_str = env.action_space.ix_to_action(action)
+            actions.append(action_str)
+            if action_str == "<next>":
+                n_next += 1
+            elif action_str == "good":
+                n_pos += 1
+            else:
+                n_neg += 1
             saved_log_probs.append(log_prob)
             state, reward, done, _ = env.step(action)
             rewards.append(reward)
@@ -31,26 +45,27 @@ def reinforce_algorithm(env, policy, optimizer, n_training_episodes, max_t, gamm
         scores_deque.append(sum(rewards))
         scores.append(sum(rewards))
         
-        # Line 6 of pseudocode: calculate the return
+        
         ## Here, we calculate discounts for instance [0.99^1, 0.99^2, 0.99^3, ..., 0.99^len(rewards)]
         discounts = [gamma**i for i in range(len(rewards)+1)]
         ## We calculate the return by sum(gamma[t] * reward[t]) 
         R = sum([a*b for a,b in zip(discounts, rewards)])
         
-        # Line 7:
+        
         policy_loss = []
         for log_prob in saved_log_probs:
             policy_loss.append(-log_prob * R)
         policy_loss = torch.cat(policy_loss).sum()
         
-        # Line 8:
+        
         optimizer.zero_grad()
         policy_loss.backward()
         optimizer.step()
-        f1 = f1_score(env.target_history, env.prediction_history, pos_label="good")
-        acc = accuracy_score(env.target_history, env.prediction_history)
+        
+        
+        stats = calculate_stats_from_cm(env.confusion_matrix)
 
-        pbar.set_description(f"F1 Score: {f1:.2f}, accuracy: {acc:.2f} \t Average Score: {np.mean(scores_deque):.2f}")
+        print(f"Episode: {i_episode}, Stats: {stats}, {len(actions), n_pos, n_neg, n_next}")
             
         
     return scores
