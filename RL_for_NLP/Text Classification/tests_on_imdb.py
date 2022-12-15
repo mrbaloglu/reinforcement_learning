@@ -41,6 +41,7 @@ data_train = nlp_processing.openDfFromPickle(data_info["path"] + "/imdb-train-be
 # declare some hyperparameters
 WINDOW_SIZE = 64
 MAX_STEPS = int(1e+5)
+TRAIN_STEPS = int(1e+3)
 VOCAB_SIZE = data_info["vocab_size"]
 REWARD_FN = "score"
 print(f"Vocab size: {VOCAB_SIZE}")
@@ -58,7 +59,7 @@ val_env = TextEnvClfBert(val_pool, 5000, VOCAB_SIZE, reward_fn=REWARD_FN)
 test_env = TextEnvClfBert(test_pool, 1000, VOCAB_SIZE, reward_fn=REWARD_FN)
 print("All environments are created.")
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0") # if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}.")
 
 def eval_model(model, env, total_timesteps=10000):
@@ -99,35 +100,43 @@ def eval_model(model, env, total_timesteps=10000):
 
 policy_kwargs = dict(
     features_extractor_class=pn.RNNExtractor,
-    features_extractor_kwargs=dict(vocab_size = VOCAB_SIZE, embed_dim = 32,
-                 rnn_type = "lstm", rnn_hidden_size = 1, rnn_hidden_out = 5, rnn_bidirectional = True,
-                 features_dim = 3, units = 32),
+    features_extractor_kwargs=dict(vocab_size = VOCAB_SIZE, embed_dim = 4,
+                 rnn_type = "lstm", rnn_hidden_size = 1, rnn_hidden_out = 2, rnn_bidirectional = True,
+                 features_dim = 2, units = 16),
 )
 # policy_kwargs = dict(net_arch=[dict(pi=[512, 256, 64, 64], qf=[400, 300])])
-# model = DQN("CnnPolicy", train_env, policy_kwargs=policy_kwargs, verbose=1, batch_size=64)
-model = A2C(policy = "MlpPolicy",
-            env = train_env,
-            gae_lambda = 0.9,
-            gamma = 0.99,
-            learning_rate = 1e-3,
-            max_grad_norm = 0.5,
-            n_steps = 100000,
-            vf_coef = 0.4,
-            ent_coef = 0.0,
-            policy_kwargs=policy_kwargs,
-            normalize_advantage=False,
-            verbose=0, 
-            use_rms_prop=True)
+model = DQN("MlpPolicy", train_env, policy_kwargs=policy_kwargs, verbose=0, batch_size=64)
+# model = A2C(policy = "MlpPolicy",
+#             env = train_env,
+#             gae_lambda = 0.9,
+#             gamma = 0.99,
+#             learning_rate = 1e-3,
+#             max_grad_norm = 0.5,
+#             n_steps = TRAIN_STEPS,
+#             vf_coef = 0.4,
+#             ent_coef = 0.0,
+#             policy_kwargs=policy_kwargs,
+#             normalize_advantage=False,
+#             verbose=0, 
+#             use_rms_prop=True, device=device)
 # model = PPO("MlpPolicy", train_env, policy_kwargs=policy_kwargs)
-
+train_env.set_train_mode(False)
 val_env.set_train_mode(False)
 test_env.set_train_mode(False)
-for i in range(int(250)):
-    model.learn(total_timesteps=int(1e+4)*5, reset_num_timesteps=True, progress_bar=True)
+"""for i in range(int(250)):
+    model.learn(total_timesteps=TRAIN_STEPS, reset_num_timesteps=True, progress_bar=True)
     train_env.set_train_mode(False)
     print("======= On train env: ===============")
     eval_model(model, train_env)
     print("======= On val env: ===============")
     eval_model(model, val_env)
     train_env.set_train_mode(True)
+"""
+model = pn.RNN_Baseline_Policy(VOCAB_SIZE, WINDOW_SIZE, 3)
+optim = torch.optim.Adam(model.parameters(), lr = 0.0001)
 
+rl_monte_carlo.reinforce_algorithm(train_env, model, optim, 10, 500, 0.99)
+print("======= On train env: ===============")
+eval_model(model, train_env)
+print("======= On val env: ===============")
+eval_model(model, val_env)
