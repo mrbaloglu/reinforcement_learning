@@ -11,7 +11,11 @@ else:
     info_path = root_path + "/NLP_datasets/RT_Polarity/data_info_bert.json"
 
 import sys
-sys.path.append(root_path)
+import os
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
+
 import numpy as np
 import pandas as pd
 import NLP_utils.preprocessing as nlp_processing

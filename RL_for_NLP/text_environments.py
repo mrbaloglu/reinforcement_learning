@@ -9,9 +9,10 @@ import copy
 import torch
 
 import sys
-sys.path.append("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning") # macos
-# sys.path.append("C:\\Users\\mrbal\\Documents\\NLP\\RL\\basic_reinforcement_learning") # windows
+import os
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 from NLP_utils import preprocessing as nlp_preprocessing
 from NLP_utils import baseline_models as nlp_base_models
@@ -445,8 +446,8 @@ class SimpleSequentialEnv(gym.Env):
 
 if __name__ == "__main__":
     data = nlp_preprocessing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")
-    pool = PartialReadingDataPoolWithBertTokens(data, "review", "label", 8, mask = False)
-    env = TextEnvClfWithBertTokens(pool, 28996, int(1e+5), "score", True)
+    pool = PartialReadingDataPoolWithBertTokens(data, "review", "label", 8, mask = True)
+    env = TextEnvClfForBertModels(pool, 28996, int(1e+5), "score", True)
     check_env(env)
     print(env.current_observation)
     print(env.current_state)

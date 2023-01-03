@@ -169,7 +169,24 @@ def bert_tokenize_data(data: pd.DataFrame, tokenizer, keys: List[str], max_len: 
         data = process_df_texts(data, keys)
     
     if tokenizer == None:
-        tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-cased")
+        tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-uncased")
+    
+    for key in keys:
+        tqdm.pandas(desc=f"Applying bert-tokenization on {key}.")
+        data["tmp"] = data[key].progress_apply(lambda x: tokenizer(x, padding='max_length', max_length = max_len, truncation=True, return_tensors="np"))
+        data[key + "_bert_input_ids"] = data["tmp"].apply(lambda x: x["input_ids"][0]) 
+        data[key + "_bert_token_type_ids"] = data["tmp"].apply(lambda x: x["token_type_ids"][0])
+        data[key + "_bert_attention_mask"] = data["tmp"].apply(lambda x: x["attention_mask"][0])
+        data = data.drop("tmp", axis=1)
+    
+    return data, tokenizer
+
+def distilbert_tokenize_data(data: pd.DataFrame, tokenizer, keys: List[str], max_len: int = 512, preprocess: bool = False) -> pd.DataFrame:
+    if preprocess:
+        data = process_df_texts(data, keys)
+    
+    if tokenizer == None:
+        tokenizer = transformers.DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     
     for key in keys:
         tqdm.pandas(desc=f"Applying bert-tokenization on {key}.")
