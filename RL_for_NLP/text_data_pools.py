@@ -33,7 +33,6 @@ class PartialReadingDataPool(ABC):
         self.samples = []
         self.labels = data[target_col].copy().values.astype(np.int32)
         self.max_len = -1 # will be updated with populate_samples function
-        self.vocab_size = -1 # will be updated with populate_samples function
         self.possible_actions = list(data[target_col + "_str"].unique())
     
     def create_episode(self, idx: int = None): # -> Tuple[List[torch.Tensor], torch.Tensor]:
@@ -94,7 +93,6 @@ class PartialReadingDataPoolWithTokens(PartialReadingDataPool):
         
         vecs = np.stack(data[text_col + "_tokenized"].copy().values).astype(np.int32)
         self.n_samples = len(vecs)
-        self.vocab_size = np.max(vecs) + 1
         pad_size = self.window_size - (self.max_len % self.window_size)
 
         if pad_size > 0:
@@ -165,7 +163,6 @@ class PartialReadingDataPoolWithBertTokens(PartialReadingDataPool):
             attn_mask_vecs = np.stack(data[text_col + "_bert_attention_mask"].copy().values).astype(np.int32)
         
         self.n_samples = len(input_id_vecs)
-        self.vocab_size = np.max(input_id_vecs)
         pad_size = self.window_size - (self.max_len % self.window_size)
        
         if pad_size > 0:
@@ -270,7 +267,6 @@ if __name__ == "__main__":
     print(data_train.head())
 
     pool = PartialReadingDataPoolWithBertTokens(data_train, "review", "label", 11, mask=False)
-    print(pool.vocab_size)
     ix = np.random.randint(len(pool))
     obs = pool.create_episode(ix)
     print(obs)

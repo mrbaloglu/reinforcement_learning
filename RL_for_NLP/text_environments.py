@@ -29,7 +29,17 @@ from abc import ABC, abstractmethod
 
 
 class BaseTextEnvClf(gym.Env, ABC):
-    def __init__(self, data_pool: PartialReadingDataPool, max_time_steps: int, reward_fn: str = "f1",  random_walk: bool = False):
+    def __init__(self, data_pool: PartialReadingDataPool, vocab_size: int, max_time_steps: int, reward_fn: str = "f1",  random_walk: bool = False):
+        """Constructor for text environments for classification. All environments will inherit from this abstract class.
+
+        Args:
+            data_pool (PartialReadingDataPool): Pool for the textual data.
+            vocab_size (int): Number of distinct words in the dataset used.
+            max_time_steps (int): Maximum time steps for the agent.
+            reward_fn (str, optional): Reward function of the environment.
+                                       Must be one of "f1", "accuracy", "precision", "recall", "score". Defaults to "f1".
+            random_walk (bool, optional): Whether to select samples randomly. Defaults to False.
+        """
         assert reward_fn in ["f1", "accuracy", "precision", "recall", "score"], \
             f"Reward functions needs to be one of 'f1', 'accuracy', 'precision', 'recall', 'score', got {reward_fn}."
 
@@ -37,6 +47,7 @@ class BaseTextEnvClf(gym.Env, ABC):
         self.time_step = 0
         self.pool = data_pool
         self.random_walk = random_walk
+        self.vocab_size = vocab_size
         action_list = copy.deepcopy(self.pool.possible_actions)
         action_list.append("<next>")
         # action_list.append("<previous>")
@@ -131,8 +142,18 @@ class BaseTextEnvClf(gym.Env, ABC):
 
 class TextEnvClf(BaseTextEnvClf):
     
-    def __init__(self, data_pool: PartialReadingDataPoolWithTokens, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False):
-        super().__init__(data_pool, max_time_steps, reward_fn, random_walk)
+    def __init__(self, data_pool: PartialReadingDataPoolWithTokens, vocab_size: int, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False):
+        """Constructor for basic tokenized text environment for classification. 
+
+        Args:
+            data_pool (PartialReadingDataPoolWithTokens): Pool for the textual data.
+            vocab_size (int): Number of distinct words in the dataset used.
+            max_time_steps (int): Maximum time steps for the agent.
+            reward_fn (str, optional): Reward function of the environment.
+                                       Must be one of "f1", "accuracy", "precision", "recall", "score". Defaults to "f1".
+            random_walk (bool, optional): Whether to select samples randomly. Defaults to False.
+        """
+        super().__init__(data_pool, vocab_size, max_time_steps, reward_fn, random_walk)
         self.current_state = self.update_current_state()
         self.n_sentences_in_obs = len(self.current_observation.get_sample_vecs())
         self._set_spaces()
@@ -144,7 +165,7 @@ class TextEnvClf(BaseTextEnvClf):
         return current_vecs[self.current_state_ix].astype(int)
     
     def _set_spaces(self):
-       self.observation_space = spaces.Box(0, self.pool.vocab_size, shape=(self.pool.window_size, ), dtype=int) 
+       self.observation_space = spaces.Box(0, self.vocab_size, shape=(self.pool.window_size, ), dtype=int) 
     
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, dict]:
         reward, done, info =  super().step(action)
@@ -169,36 +190,42 @@ class TextEnvClf(BaseTextEnvClf):
         # )
         self.observation_space = spaces.Box(0, self.pool.vocab_size, shape=(self.pool.window_size, ), dtype=int)"""
 
-class TextEnvClfForBertModels(BaseTextEnvClf):
+class TextEnvClfWithBertTokens(BaseTextEnvClf):
     
-    def __init__(self, data_pool: PartialReadingDataPool, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False):
-        super().__init__(data_pool, max_time_steps, reward_fn, random_walk)
+    def __init__(self, data_pool: PartialReadingDataPool, vocab_size: int, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False):
+        """Constructor for pretrained BERT tokenized text environment (only tokens) for classification. 
+
+            Args:
+                data_pool (PartialReadingDataPoolWithBertTokens): Pool for the textual data. (mask parameter should be False)
+                vocab_size (int): Number of distinct words in the dataset used.
+                max_time_steps (int): Maximum time steps for the agent.
+                reward_fn (str, optional): Reward function of the environment.
+                                        Must be one of "f1", "accuracy", "precision", "recall", "score". Defaults to "f1".
+                random_walk (bool, optional): Whether to select samples randomly. Defaults to False.
+        """
+        super().__init__(data_pool, vocab_size, max_time_steps, reward_fn, random_walk)
+        
+        assert self.pool.mask == False, \
+            "The mask parameter of the data pool must be False."
+
         self.current_state = self.update_current_state()
         self.n_sentences_in_obs = len(self.current_observation.get_sample_input_id_vecs())
         self._set_spaces()
         print("---- Inside constructor ---------")
-        print("Input id shape: ", self.current_state["input_id"].shape, type(self.current_state["input_id"]))
-        print("Attn mask shape: ", self.current_state["attn_mask"].shape, type(self.current_state["attn_mask"]))
+        print("State shape/type: ", self.current_state.shape, type(self.current_state))
         print("------------- End Constructor-------------")
 
     
     def update_current_state(self):
         current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()
-        current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
 
         self.current_label = self.current_observation.get_label_enc()
         # self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
         # self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
-        return {"input_id": current_input_id_vecs[self.current_state_ix].astype(int), 
-                "attn_mask": current_attn_mask_vecs[self.current_state_ix].astype(int)}
+        return current_input_id_vecs[self.current_state_ix].astype(int)
     
     def _set_spaces(self):
-        self.observation_space = spaces.Dict(
-            {
-                "input_id": spaces.Box(0, self.pool.vocab_size, shape=(self.pool.window_size, ), dtype=int),
-                "attn_mask": spaces.Box(0, 2, shape=(self.pool.window_size, ), dtype=int) 
-            }
-        )
+        self.observation_space = spaces.Box(0, self.vocab_size, shape=(self.pool.window_size, ), dtype=int)
     
 
     def step(self, action: int):
@@ -218,14 +245,28 @@ class TextEnvClfForBertModels(BaseTextEnvClf):
 
 class TextEnvClfForBertModels(BaseTextEnvClf):
     
-    def __init__(self, data_pool: PartialReadingDataPool, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False):
-        super().__init__(data_pool, max_time_steps, reward_fn, random_walk)
+    def __init__(self, data_pool: PartialReadingDataPoolWithBertTokens, vocab_size: int, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False):
+        """Constructor for basic tokenized text environment for classification. 
+
+        Args:
+            data_pool (PartialReadingDataPoolWithBertTokens): Pool for the textual data.
+            vocab_size (int): Number of distinct words in the dataset used.
+            max_time_steps (int): Maximum time steps for the agent.
+            reward_fn (str, optional): Reward function of the environment.
+                                       Must be one of "f1", "accuracy", "precision", "recall", "score". Defaults to "f1".
+            random_walk (bool, optional): Whether to select samples randomly. Defaults to False.
+        """
+        super().__init__(data_pool, vocab_size, max_time_steps, reward_fn, random_walk)
+        
+        assert self.pool.mask == True, \
+            "The mask parameter of the data pool must be True."
+
         self.current_state = self.update_current_state()
         self.n_sentences_in_obs = len(self.current_observation.get_sample_input_id_vecs())
         self._set_spaces()
         print("---- Inside constructor ---------")
-        print("Input id shape: ", self.current_state["input_id"].shape, type(self.current_state["input_id"]))
-        print("Attn mask shape: ", self.current_state["attn_mask"].shape, type(self.current_state["attn_mask"]))
+        print("Input id shape/type: ", self.current_state["input_id"].shape, type(self.current_state["input_id"]))
+        print("Attn mask shape/type: ", self.current_state["attn_mask"].shape, type(self.current_state["attn_mask"]))
         print("------------- End Constructor-------------")
 
     
@@ -242,7 +283,7 @@ class TextEnvClfForBertModels(BaseTextEnvClf):
     def _set_spaces(self):
         self.observation_space = spaces.Dict(
             {
-                "input_id": spaces.Box(0, self.pool.vocab_size, shape=(self.pool.window_size, ), dtype=int),
+                "input_id": spaces.Box(0, self.vocab_size, shape=(self.pool.window_size, ), dtype=int),
                 "attn_mask": spaces.Box(0, 2, shape=(self.pool.window_size, ), dtype=int) 
             }
         )
@@ -404,21 +445,20 @@ class SimpleSequentialEnv(gym.Env):
 
 if __name__ == "__main__":
     data = nlp_preprocessing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")
-    pool = PartialReadingDataPoolWithBertTokens(data, "review", "label", 8)
-    env = TextEnvClfForBertModels(pool, int(1e+5), "score", True)
+    pool = PartialReadingDataPoolWithBertTokens(data, "review", "label", 8, mask = False)
+    env = TextEnvClfWithBertTokens(pool, 28996, int(1e+5), "score", True)
     check_env(env)
     print(env.current_observation)
     print(env.current_state)
     print("="*40)
-    print(env.current_state["input_id"])
+    print(env.current_state)
     print("="*40)
-    print(env.current_state["attn_mask"])
+    
     print("="*40)
     print(env.step(0))
     print(env.step(0))
-    print(env.current_state["input_id"])
+    print(env.current_state)
     print("="*40)
     print(env.step(2))
-    
 
     
