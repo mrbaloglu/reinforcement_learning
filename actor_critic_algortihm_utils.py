@@ -147,17 +147,18 @@ class ActorCriticAlgorithm:
 
     def train_a2c(self, n_episodes: int, n_steps: int, render_env: bool = False, log_interval: int = 150):
         running_reward = 10
-        
+        last_reward = 0
         # run infinitely many episodes / number of episodes selected
-        for i_episode in range(1, n_episodes + 1):
-
+        pbar = tqdm(range(1, n_episodes+1))
+        for i_episode in pbar:
+            pbar.set_description(f"Average reward so far: {last_reward:.3f} (updated every {log_interval} episodes)")
             # reset environment and episode reward
             state = self.env.reset()
             ep_reward = 0
 
             # for each episode, only run 9999 steps so that we don't
             # infinite loop while learning
-            for t in range(1, n_steps):
+            for t in tqdm(range(1, n_steps), leave=False):
 
                 # select action from policy
                 action = self.select_action(state)
@@ -176,23 +177,25 @@ class ActorCriticAlgorithm:
             # update cumulative reward
             running_reward = 0.05 * ep_reward + (1 - 0.05) * running_reward
 
+            
             # perform backprop
             self.finish_episode()
 
             # log results
             if i_episode % log_interval == 0:
-                print('Episode {}\tLast reward: {:.2f}\tAverage reward: {:.2f}'.format(
-                    i_episode, ep_reward, running_reward))
+                # print(f'Episode {i_episode}\tLast reward: {ep_reward:.2f}\tAverage reward: {running_reward:.2f}')
+                last_reward = running_reward
 
-            # check if we have "solved" the cart pole problem
+            """# check if we have "solved" the cart pole problem
             if running_reward > self.env.spec.reward_threshold:
                 print("Solved! Running reward is now {} and "
                     "the last episode runs to {} time steps!".format(running_reward, t))
-                break
+                break"""
+        
     
 if __name__ == "__main__":
 
-    env = gym.make('CartPole-v1')
+    env = gym.make('MountainCar-v0')
     print(env.observation_space, env.observation_space.shape)
     print(env.action_space, env.action_space.shape)
     print(env.reset())
@@ -202,4 +205,4 @@ if __name__ == "__main__":
     optimizer = th.optim.Adam(model.parameters(), lr=3e-2)
     
     algo = ActorCriticAlgorithm(model, env, optimizer)
-    algo.train_a2c(10000, 1000)
+    algo.train_a2c(10000, 1000, log_interval=10)
