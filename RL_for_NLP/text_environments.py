@@ -445,8 +445,9 @@ class SimpleSequentialEnv(gym.Env):
 
 
 if __name__ == "__main__":
-    data = nlp_preprocessing.openDfFromPickle("NLP_datasets/RT_Polarity/rt-polarity-train-bert.pkl")
-    pool = PartialReadingDataPoolWithBertTokens(data, "review", "label", 8, mask = True)
+    data = nlp_preprocessing.openDfFromPickle("NLP_datasets/ag_news/ag_news_train_distilbert-base-uncased.pkl")
+
+    pool = PartialReadingDataPoolWithBertTokens(data, "text", "label", 512, 50, mask = True)
     env = TextEnvClfForBertModels(pool, 28996, int(1e+5), "score", True)
     check_env(env)
     print(env.current_observation)

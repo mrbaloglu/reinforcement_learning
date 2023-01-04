@@ -6,12 +6,12 @@ from torch.distributions import Categorical
 import numpy as np
 
 from abc import ABC, abstractmethod
-from typing import Union
+from typing import Union, Dict, Tuple
 from collections import namedtuple
 from itertools import count
 import gym
 from tqdm import tqdm
-
+from transformers import DistilBertModel
 
 SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
 
@@ -61,6 +61,42 @@ class DenseActorCriticPolicy(ActorCriticPolicy):
         x = self.dropout_layer(x)
         x = F.relu(self.affine2(x))
         x = F.relu(self.affine3(x))
+        # actor: choses action to take from state s_t
+        # by returning probability of each action
+        action_prob = F.softmax(self.action_head(x), dim=-1)
+
+        # critic: evaluates being in the state s_t
+        state_values = self.value_head(x)
+
+        # return values for both actor and critic as a tuple of 2 values:
+        # 1. a list with the probability of each action over the action space
+        # 2. the value from state s_t
+        return action_prob, state_values
+
+class DistibertActorCriticPolicy(ActorCriticPolicy):
+    def __init__(self, state_dim: int, action_dim: int, dropout = 0.4):
+        super().__init__(state_dim=state_dim, action_dim=action_dim, dropout=dropout)
+        
+        self.distilbert = DistilBertModel.from_pretrained("distilbert-base-uncased")
+
+        self.flatten = nn.Flatten()
+        self.dense = nn.Linear(self.state_dim*768, 128)
+        self.dropout_layer = nn.Dropout(p=self.dropout)
+        # actor's layer
+        self.action_head = nn.Linear(128, self.action_dim)
+
+        # critic's layer
+        self.value_head = nn.Linear(128, 1)
+
+        
+
+    def forward(self, x_input_id: th.tensor, x_attn_mask: th.tensor) -> th.Tensor:
+        
+        x = self.distilbert(x_input_id, x_attn_mask).last_hidden_state
+        
+        x = self.flatten(x)
+        x = F.relu(self.dense(x))
+        x = self.dropout_layer(x)
         # actor: choses action to take from state s_t
         # by returning probability of each action
         action_prob = F.softmax(self.action_head(x), dim=-1)
