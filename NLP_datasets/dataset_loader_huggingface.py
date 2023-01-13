@@ -24,13 +24,18 @@ print(SCRIPT_DIR)
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 params = {
-    "dataset_name": "dbpedia_14",
+    "dataset_name": "rotten_tomatoes",
     "tokenizer": "distilbert-base-uncased",
-    "text_field_name": "content",
+    "text_field_name": "text",
     "max_len": 512
 }
+# label dictionary for imdb and rotten tomatoes
+label_dict = {
+    '0': "neg",
+    '1': "pos",
+}
 
-# label dictionary for dbpedia
+"""# label dictionary for dbpedia
 label_dict = {
     '0': "Company",
     '1': "EducationalInstitution",
@@ -46,7 +51,7 @@ label_dict = {
     '11': "Album",
     '12': "Film",
     '13': "WrittenWork",
-}
+}"""
 
 """# label dictionary for ag_news
 label_dict = {
