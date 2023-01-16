@@ -14,7 +14,7 @@ import sys
 import os
 import json
 import pandas as pd
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer 
 
 
 
@@ -53,7 +53,7 @@ label_dict = {
     '13': "WrittenWork",
 }"""
 
-"""# label dictionary for ag_news
+"""# label dictionary for ag_news:
 label_dict = {
     '0': "World",
     '1': "Sports",
