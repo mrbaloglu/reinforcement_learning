@@ -8,8 +8,11 @@ from typing import Union, List
 # from torchtext.vocab import GloVe
 import transformers
 import gym
+from gym import spaces
 
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from transformers import DistilBertModel, BertModel
+
 
 
 class Softmax_Policy_Dense_Layers(nn.Module):
@@ -449,3 +452,35 @@ class DummyNN(BaseFeaturesExtractor):
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
         return x       
+
+
+class DistilbertExtractor(BaseFeaturesExtractor):
+    def __init__(self, observation_space: spaces.Dict, window_size: int, features_dim=64):
+        # We do not know features-dim here before going over all the items,
+        # so put something dummy for now. PyTorch requires calling
+        # nn.Module.__init__ before adding modules
+        super().__init__(observation_space, features_dim=features_dim)
+        self.distilbert = DistilBertModel.from_pretrained("distilbert-base-uncased")
+        self.distilbert.requires_grad = False
+        self.flat = nn.Flatten()
+        self.conv1d = nn.Conv1d(window_size, 1, kernel_size=16)
+
+        with torch.no_grad():
+            dummy = torch.zeros((1, window_size, 768))
+            dummy = self.conv1d(dummy)
+            dummy = self.flat(dummy)
+        flat_out_dim = dummy.shape[-1]
+        self.dense = nn.Linear(flat_out_dim, features_dim) # 768 - kernel_size + 1
+
+    
+    def forward(self, observations) -> torch.Tensor:
+        
+        input_ids = observations["input_id"].long()
+        attn_mask = observations["attn_mask"].long()
+
+        x = self.distilbert(input_ids, attn_mask).last_hidden_state
+        x = F.relu(self.conv1d(x))
+        x = self.flat(x)
+        x = F.relu(self.dense(x))
+       
+        return x

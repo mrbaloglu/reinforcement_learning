@@ -7,7 +7,7 @@ import pandas as pd
 import re
 from tqdm.notebook import tqdm_notebook
 from keras.preprocessing import text, sequence
-from typing import Union, List
+from typing import Union, List, Dict
 from tqdm import tqdm
 from tqdm.notebook import  tqdm_notebook
 import pickle
@@ -45,7 +45,7 @@ def process_df_texts(data: pd.DataFrame, keys: list) -> pd.DataFrame:
     """
     for key in keys:
         tqdm_notebook.pandas(desc=f"Applying text-processing on {key}")
-        data[key] = data[key].apply(lambda x: preprocess_text(x))
+        data[key] = data[key].progress_apply(lambda x: preprocess_text(x))
 
     return data
 
@@ -198,6 +198,34 @@ def distilbert_tokenize_data(data: pd.DataFrame, tokenizer, keys: List[str], max
     
     return data, tokenizer
 
+def auto_tokenize_data(data: pd.DataFrame, tokenizer: transformers.AutoTokenizer, keys: List[str],
+         max_len: int = 512, preprocess: bool = False) -> pd.DataFrame:
+    
+    if preprocess:
+        data = process_df_texts(data, keys)
+    
+    for key in keys:
+        tqdm.pandas(desc=f"Applying bert-tokenization on {key}.")
+        data["tmp"] = data[key].progress_apply(lambda x: tokenizer(x, padding='max_length', max_length = max_len, truncation=True, return_tensors="np"))
+        data[key + "_bert_input_ids"] = data["tmp"].apply(lambda x: x["input_ids"][0])
+        data[key + "_bert_attention_mask"] = data["tmp"].apply(lambda x: x["attention_mask"][0])
+        data = data.drop("tmp", axis=1)
+    
+    return data, tokenizer
+
+def create_label_desc_column(data: pd.DataFrame, label_col: str, label_dict: Dict[str, str]) -> pd.DataFrame:
+    """Create a new column of label meanings given a mapping of integers (written as string) to strings. (e.g '0': 'Company' in dbpedia)
+
+    Args:
+        data (pd.DataFrame): The dataframe
+        label_col (str): column of labels in data as numeric values
+        label_dict (Dict[str, str]): mappings of label indexes to meanings
+
+    Returns:
+        pd.DataFrame: dataframe with new column named {label_col}_str
+    """
+    data[label_col + "_str"] = data[label_col].apply(lambda x: label_dict[str(x)])
+    return data
 
 
 if __name__ == "__main__":
