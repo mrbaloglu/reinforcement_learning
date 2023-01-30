@@ -1,10 +1,34 @@
+"""import platform
+root_path = "/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning"
 
-import sys
-
-sys.path.append("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning")
+if platform.system() == "Windows":
+    root_path = ""
+    sep = '\\'
+    print("Running on windows...")"""
+from pathlib import Path 
 import os
-os.chdir("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning")
+import sys
+import re
+import gc 
 
+# Get the directory of the current script
+current_dir = os.path.dirname(os.path.abspath(__file__))
+print("Current directory: ", current_dir)
+dir = Path(__file__).parent
+while not str(dir).endswith("basic_reinforcement_learning"):
+    print(dir)
+    dir = dir.parent
+print("Parent directory: ", dir)
+sys.path.append(os.path.abspath(dir))
+# sys.path.append("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning")
+# sys.path.append(os.path.dirname(os.path.realpath(__file__)))
+"""import os
+os.chdir("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning")"""
+
+
+import torch as th
+
+#from NLP_utils.preprocessing import *
 import NLP_utils.preprocessing as nlp_processing
 from RL_for_NLP.text_environments import TextEnvClfWithBertTokens, TextEnvClf, TextEnvClfForBertModels
 from RL_for_NLP.text_reward_functions import calculate_stats_from_cm
@@ -33,16 +57,27 @@ from collections import Counter
 from tqdm import tqdm
 from tqdm.notebook import tqdm
 
+if __name__ == "__main__":
 
-data = nlp_processing.openDfFromPickle("NLP_datasets/ag_news/ag_news_train_distilbert-base-uncased.pkl")
-pool = PartialReadingDataPoolWithBertTokens(data, "text", "label", 512, 50, mask = True)
-env = TextEnvClfForBertModels(pool, 30522, int(1e+5), "score", True)
+    
+    
+    print(dir)
+
+    device = th.device("cuda" if th.cuda.is_available() else "cpu")
+    print(f"Running on device: {device}")
+    data = nlp_processing.openDfFromPickle("NLP_datasets/ag_news/ag_news_train_distilbert-base-uncased.pkl")
+    pool = PartialReadingDataPoolWithBertTokens(data, "text", "label", 512, 50, mask = True)
+    env = TextEnvClfForBertModels(pool, 30522, int(1e+5), "score", True)
 
 
-policy = a2c_utils.DistibertActorCriticPolicy(50, 4, dropout=0.)
+    policy = a2c_utils.DistibertActorCriticPolicy(50, 4, dropout=0.)
 
-optimizer = Adam(policy.parameters())
-a2c = a2c_utils.ActorCriticAlgorithmBertModel(policy, env, optimizer, gamma=1.)
+    optimizer = Adam(policy.parameters())
+    a2c = a2c_utils.ActorCriticAlgorithmBertModel(policy, env, optimizer, device=device, gamma=1.)
 
-
-a2c.train_a2c(10, 10, log_interval=2)
+    for _ in range(5):
+        a2c.train_a2c(1000, 50, log_interval=2)
+        a2c.device = th.device("cpu")
+        a2c.eval_model(env)
+        a2c.device = th.device("cuda" if th.cuda.is_available() else "cpu")
+    

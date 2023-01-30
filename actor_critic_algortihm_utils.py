@@ -12,6 +12,9 @@ from itertools import count
 import gym
 from tqdm import tqdm
 from transformers import DistilBertModel
+from collections import Counter
+import gc
+ 
 
 from RL_for_NLP.text_reward_functions import calculate_stats_from_cm
 
@@ -89,7 +92,7 @@ class DistibertActorCriticPolicy(ActorCriticPolicy):
             if cnt < use_last_n_layers:
                 param.requires_grad = False
             cnt += 1"""
-        self.distilbert.requires_grad = False
+        self.bert.requires_grad = False
         
         
         self.flatten = nn.Flatten()
@@ -121,6 +124,16 @@ class DistibertActorCriticPolicy(ActorCriticPolicy):
         # 1. a list with the probability of each action over the action space
         # 2. the value from state s_t
         return action_prob, state_values
+    
+    """def _apply(self, fn):
+        self.bert = fn(self.bert)
+        self.flatten = fn(self.flatten)
+        self.dense = fn(self.dense)
+        self.dropout_layer = fn(self.dropout_layer)
+        self.action_head = fn(self.action_head)
+        self.value_head = fn(self.value_head)
+
+        return self"""
 
 ################################################################################
 ################################################################################
@@ -131,17 +144,19 @@ class DistibertActorCriticPolicy(ActorCriticPolicy):
 ################################################################################
 ################################################################################
 class ActorCriticAlgorithm:
-    def __init__(self, policy: ActorCriticPolicy, env: gym.Env, optimizer: th.optim, gamma: float = 0.99, **kwargs):
+    def __init__(self, policy: ActorCriticPolicy, env: gym.Env, optimizer: th.optim, device: th.device = th.device("cpu"),
+            gamma: float = 0.99, **kwargs):
         self.policy = policy
         self.env = env
         self.gamma = gamma
         self.optimizer = optimizer
-    
+        self.device = device
+        self.policy.to(self.device)
     
 
     # select an action given a state from env, using the policy
     def select_action(self, state: np.ndarray):
-        state = th.from_numpy(state).float().unsqueeze(0)
+        state = th.from_numpy(state).float().unsqueeze(0).to(self.device)
         probs, state_value = self.policy(state)
         m = Categorical(probs)
         action = m.sample()
@@ -168,7 +183,7 @@ class ActorCriticAlgorithm:
             R = r + self.gamma * R
             returns.insert(0, R)
 
-        returns = th.tensor(returns)
+        returns = th.tensor(returns).to(self.device)
         returns = (returns - returns.mean()) / (returns.std() + epsilon)
 
         for (log_prob, value), R in zip(saved_actions, returns):
@@ -178,13 +193,13 @@ class ActorCriticAlgorithm:
             policy_losses.append(-log_prob * advantage)
 
             # calculate critic (value) loss using L1 smooth loss
-            value_losses.append(F.smooth_l1_loss(value, th.tensor([R])))
+            value_losses.append(F.smooth_l1_loss(value, th.tensor([R]).to(self.device)))
 
         # reset gradients
         self.optimizer.zero_grad()
 
         # sum up all the values of policy_losses and value_losses
-        loss = th.stack(policy_losses).sum() + th.stack(value_losses).sum()
+        loss = th.stack(policy_losses).sum() + th.stack(value_losses).to(self.device).sum()
 
         # perform backprop
         loss.backward()
@@ -243,26 +258,33 @@ class ActorCriticAlgorithm:
         
 
 class ActorCriticAlgorithmBertModel:
-    def __init__(self, policy: ActorCriticPolicy, env: gym.Env, optimizer: th.optim, gamma: float = 0.99, **kwargs):
+    def __init__(self, policy: ActorCriticPolicy, env: gym.Env, optimizer: th.optim, device: th.device = th.device("cpu"),
+             gamma: float = 0.99, **kwargs):
         self.policy = policy
         self.env = env
         self.gamma = gamma
         self.optimizer = optimizer
+        self.device = device
     
-    
+        self.policy.to(self.device)
 
     # select an action given a state from env, using the policy
     def select_action(self, state: Dict[str, np.ndarray]):
-        input_ids = th.from_numpy(state["input_id"]).unsqueeze(0)
-        attn_mask = th.from_numpy(state["attn_mask"]).unsqueeze(0)
+        input_ids = th.from_numpy(state["input_id"]).unsqueeze(0).to(self.device)
+        attn_mask = th.from_numpy(state["attn_mask"]).unsqueeze(0).to(self.device)
         
         probs, state_value = self.policy(input_ids, attn_mask)
         m = Categorical(probs)
         action = m.sample()
+
         # save to action buffer
         self.policy.saved_actions.append(SavedAction(m.log_prob(action), state_value))
         self.policy.saved_log_probs.append(m.log_prob(action))
-        return action.item()
+        action_ = action.cpu().item()
+
+        del input_ids, attn_mask, probs, state_value, m, action
+        th.cuda.empty_cache()
+        return action_
 
      
  
@@ -270,6 +292,7 @@ class ActorCriticAlgorithmBertModel:
         """
         Training code. Calculates actor and critic loss and performs backprop.
         """
+
         R = 0
         saved_actions = self.policy.saved_actions
         policy_losses = [] # list to save actor (policy) loss
@@ -282,7 +305,7 @@ class ActorCriticAlgorithmBertModel:
             R = r + self.gamma * R
             returns.insert(0, R)
 
-        returns = th.tensor(returns)
+        returns = th.tensor(returns).to(self.device)
         returns = (returns - returns.mean()) / (returns.std() + epsilon)
 
         for (log_prob, value), R in zip(saved_actions, returns):
@@ -292,13 +315,13 @@ class ActorCriticAlgorithmBertModel:
             policy_losses.append(-log_prob * advantage)
 
             # calculate critic (value) loss using L1 smooth loss
-            value_losses.append(F.smooth_l1_loss(value, th.tensor([R])))
+            value_losses.append(F.smooth_l1_loss(value, th.tensor([R]).to(self.device)))
 
         # reset gradients
         self.optimizer.zero_grad()
 
         # sum up all the values of policy_losses and value_losses
-        loss = th.stack(policy_losses).sum() + th.stack(value_losses).sum()
+        loss = th.stack(policy_losses).sum() + th.stack(value_losses).to(self.device).sum()
 
         # perform backprop
         loss.backward()
@@ -308,13 +331,18 @@ class ActorCriticAlgorithmBertModel:
         del self.policy.rewards[:]
         del self.policy.saved_actions[:]
 
+        del loss, policy_losses, value_losses
+        th.cuda.empty_cache()
+        
     def train_a2c(self, n_episodes: int, n_steps: int, render_env: bool = False, log_interval: int = 150):
+        self.policy.to(self.device)
         running_reward = 0.
         last_reward = 0
         # run infinitely many episodes / number of episodes selected
         pbar = tqdm(range(1, n_episodes+1))
         for i_episode in pbar:
-            pbar.set_description(f"Stats:  {calculate_stats_from_cm(self.env.confusion_matrix)}, Average reward: {last_reward:.3f} (updated every {log_interval} episodes)")
+            stats = calculate_stats_from_cm(self.env.confusion_matrix)
+            pbar.set_description(f"Accuracy: {stats['accuracy']:.2f}, Precision: {stats['precision']:.2f}, Recall: {stats['recall']:.2f}, F1: {stats['f1']:.2f}, Average reward: {last_reward:.3f} (updated every {log_interval} episodes)")
             # reset environment and episode reward
             state = self.env.reset()
             ep_reward = 0
@@ -343,19 +371,52 @@ class ActorCriticAlgorithmBertModel:
             
             # perform backprop
             self.finish_episode()
-
+            th.cuda.empty_cache()
             # log results
             if i_episode % log_interval == 0:
                 # print(f'Episode {i_episode}\tLast reward: {ep_reward:.2f}\tAverage reward: {running_reward:.2f}')
                 last_reward = ep_reward
             
-            print(f"Observe: {_}")
+            # print(f"Observe: {_}")
 
             """# check if we have "solved" the cart pole problem
             if running_reward > self.env.spec.reward_threshold:
                 print("Solved! Running reward is now {} and "
                     "the last episode runs to {} time steps!".format(running_reward, t))
                 break"""
+    
+    def eval_model(self, env, total_timesteps=100):
+        done = False
+        obs = env.reset()
+        total_reward = 0.0
+        actions = []
+        seen_samples = 0
+        self.policy.to(self.device)
+        for _ in tqdm(range(total_timesteps)):
+            action = self.select_action(obs)
+            obs, rewards, done, info = env.step(action)
+            action = env.action_space.ix_to_action(action)
+            if action in env.pool.possible_actions:
+                seen_samples += 1
+            if done:
+                obs = env.reset()
+        
+            del self.policy.rewards[:]
+            del self.policy.saved_actions[:]
+            actions.append(action)
+            total_reward += rewards
+            del rewards, done, info, action
+      
+        print("---------------------------------------------");
+        print(f"Total Steps and seen samples: {len(actions), seen_samples}")
+        print(f"Total reward: {total_reward}")
+        print(f"Stats:  {calculate_stats_from_cm(env.confusion_matrix)}")
+        acts = list(Counter(actions).keys())
+        freqs = list(Counter(actions).values())
+        total = len(actions)
+        print(f"Action stats --  {[{acts[ii]: freqs[ii]/total} for ii in range(len(acts))]}")
+        print("---------------------------------------------")
+
         
 
 if __name__ == "__main__":
@@ -369,5 +430,7 @@ if __name__ == "__main__":
     model = DenseActorCriticPolicy(env.observation_space.shape[0], env.action_space.n)
     optimizer = th.optim.Adam(model.parameters(), lr=3e-2)
     
-    algo = ActorCriticAlgorithm(model, env, optimizer)
-    algo.train_a2c(10000, 1000, log_interval=10)
+    algo = ActorCriticAlgorithm(model, env, optimizer, device=th.device("cuda"))
+    
+    for _ in range(5):
+        algo.train_a2c(10000, 50, log_interval=10)
