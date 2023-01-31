@@ -30,7 +30,7 @@ from abc import ABC, abstractmethod
 
 
 class BaseTextEnvClf(gym.Env, ABC):
-    def __init__(self, data_pool: PartialReadingDataPool, vocab_size: int, max_time_steps: int, reward_fn: str = "f1",  random_walk: bool = False):
+    def __init__(self, data_pool: PartialReadingDataPool, vocab_size: int, max_time_steps: int, reward_fn: str = "score",  random_walk: bool = False):
         """Constructor for text environments for classification. All environments will inherit from this abstract class.
 
         Args:
@@ -38,7 +38,7 @@ class BaseTextEnvClf(gym.Env, ABC):
             vocab_size (int): Number of distinct words in the dataset used.
             max_time_steps (int): Maximum time steps for the agent.
             reward_fn (str, optional): Reward function of the environment.
-                                       Must be one of "f1", "accuracy", "precision", "recall", "score". Defaults to "f1".
+                                       Must be one of "f1", "accuracy", "precision", "recall", "score". Defaults to "score".
             random_walk (bool, optional): Whether to select samples randomly. Defaults to False.
         """
         assert reward_fn in ["f1", "accuracy", "precision", "recall", "score"], \

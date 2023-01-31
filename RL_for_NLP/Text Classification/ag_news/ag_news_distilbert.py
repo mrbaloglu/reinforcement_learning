@@ -67,15 +67,16 @@ if __name__ == "__main__":
     print(f"Running on device: {device}")
     data = nlp_processing.openDfFromPickle("NLP_datasets/ag_news/ag_news_train_distilbert-base-uncased.pkl")
     pool = PartialReadingDataPoolWithBertTokens(data, "text", "label", 512, 50, mask = True)
+    print(pool.possible_actions)
     env = TextEnvClfForBertModels(pool, 30522, int(1e+5), "score", True)
 
 
-    policy = a2c_utils.DistibertActorCriticPolicy(50, 4, dropout=0.)
+    policy = a2c_utils.DistibertActorCriticPolicy(50, len(pool.possible_actions)+1, dropout=0.)
 
     optimizer = Adam(policy.parameters())
     a2c = a2c_utils.ActorCriticAlgorithmBertModel(policy, env, optimizer, device=device, gamma=1.)
 
-    for _ in range(5):
+    for _ in range(25):
         a2c.train_a2c(1000, 50, log_interval=2)
         a2c.device = th.device("cpu")
         a2c.eval_model(env)
