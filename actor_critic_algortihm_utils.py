@@ -349,7 +349,7 @@ class ActorCriticAlgorithmBertModel:
 
             # for each episode, only run 9999 steps so that we don't
             # infinite loop while learning
-            for t in tqdm(range(1, n_steps), leave=False):
+            for t in range(1, n_steps):
 
                 # select action from policy
                 action = self.select_action(state)

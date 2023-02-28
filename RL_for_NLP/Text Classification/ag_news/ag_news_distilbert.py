@@ -25,7 +25,7 @@ sys.path.append(os.path.abspath(dir))
 """import os
 os.chdir("/Users/emrebaloglu/Documents/RL/basic_reinforcement_learning")"""
 
-
+from datetime import datetime
 import torch as th
 
 #from NLP_utils.preprocessing import *
@@ -39,6 +39,7 @@ import policy_networks as pn
 
 import torch as th
 from torch.optim import Adam
+from torchsummary import summary
 import mlflow
 from RL_for_NLP.text_reward_functions import calculate_stats_from_cm
 
@@ -62,6 +63,7 @@ if __name__ == "__main__":
     
     
     print(dir)
+    print(datetime.now())
 
     device = th.device("cuda" if th.cuda.is_available() else "cpu")
     print(f"Running on device: {device}")
@@ -75,10 +77,13 @@ if __name__ == "__main__":
 
     optimizer = Adam(policy.parameters())
     a2c = a2c_utils.ActorCriticAlgorithmBertModel(policy, env, optimizer, device=device, gamma=1.)
+    print(summary(policy))
 
-    for _ in range(25):
-        a2c.train_a2c(1000, 50, log_interval=2)
+    for _ in range(1):
+        a2c.train_a2c(500, 50, log_interval=2)
         a2c.device = th.device("cpu")
         a2c.eval_model(env)
         a2c.device = th.device("cuda" if th.cuda.is_available() else "cpu")
+    
+    th.save(a2c.policy, "a2c_distilbert_on_" + str(datetime.now()) + ".pth")
     
