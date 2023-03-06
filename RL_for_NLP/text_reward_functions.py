@@ -50,7 +50,7 @@ class PartialReadingReward(ABC):
         return confusion_matrix
 
     @abstractmethod
-    def  __call__(self, action: str, target: str, confusion_matrix: np.ndarray, expolarition_discount: float = 0.) -> float:
+    def  __call__(self, action: str, target: str, confusion_matrix: np.ndarray, exploration_discount: float = 0.) -> float:
         raise NotImplementedError
 
 class PartialReadingRewardF1(PartialReadingReward):
@@ -123,13 +123,18 @@ class PartialReadingRewardRecall(PartialReadingReward):
             return -0.0*(np.log2(exploration_discount)), confusion_matrix
 
 class PartialReadingRewardScore(PartialReadingReward):
-    def __call__(self, action: str, target: str, confusion_matrix: np.ndarray, exploration_discount: float = 0) -> float:
+    def __call__(self, action: str, target: str, confusion_matrix: np.ndarray, exploration_discount: float = 1.) -> float:
         if action in self.label_list:
             confusion_matrix = super().update_cm(action, target, confusion_matrix)
             tmp = int(action == target)
             if tmp == 0:
                 tmp = -1.25
+            
             return tmp, confusion_matrix
         else:
-            return 0.01 * exploration_discount, confusion_matrix
+            return 0.005 * 10**exploration_discount, confusion_matrix
+
+class PartialReadingRewardCertainity(PartialReadingReward):
+    def __call__(self, action: str, target: str, confusion_matrix: np.ndarray, exploration_discount: float = 0) -> float:
+        return super().__call__(action, target, confusion_matrix, exploration_discount)
     

@@ -26,11 +26,15 @@ from RL_for_NLP.text_action_space import ActionSpace
 from RL_for_NLP.text_reward_functions import PartialReadingRewardF1, PartialReadingRewardAccuracy, PartialReadingRewardPrecision, PartialReadingRewardRecall, PartialReadingRewardScore
 from RL_for_NLP.observation import Observation
 
+import torch as th
+import torch.nn as nn
+
 from abc import ABC, abstractmethod
 
 
 class BaseTextEnvClf(gym.Env, ABC):
-    def __init__(self, data_pool: PartialReadingDataPool, vocab_size: int, max_time_steps: int, reward_fn: str = "f1",  random_walk: bool = False):
+    def __init__(self, data_pool: PartialReadingDataPool, vocab_size: int, max_time_steps: int, 
+                 reward_fn: str = "score",  random_walk: bool = False):
         """Constructor for text environments for classification. All environments will inherit from this abstract class.
 
         Args:
@@ -38,7 +42,7 @@ class BaseTextEnvClf(gym.Env, ABC):
             vocab_size (int): Number of distinct words in the dataset used.
             max_time_steps (int): Maximum time steps for the agent.
             reward_fn (str, optional): Reward function of the environment.
-                                       Must be one of "f1", "accuracy", "precision", "recall", "score". Defaults to "f1".
+                                       Must be one of "f1", "accuracy", "precision", "recall", "score". Defaults to "score".
             random_walk (bool, optional): Whether to select samples randomly. Defaults to False.
         """
         assert reward_fn in ["f1", "accuracy", "precision", "recall", "score"], \
@@ -86,8 +90,17 @@ class BaseTextEnvClf(gym.Env, ABC):
     @abstractmethod
     def _set_spaces(self):
         raise NotImplementedError
-    # calculate the reward and update confusion matrix, given the action
+    
+
     def calculate_reward(self, action: int) -> float: 
+        """calculate the reward and update confusion matrix, given the action.
+
+        Args:
+            action (int): Action taken.
+
+        Returns:
+            float: Reward as a feedback for the action.
+        """
         action_str = self.action_space.ix_to_action(action)
         label_str = self.action_space.ix_to_action(self.current_observation.get_label_enc().item())
         reward, self.confusion_matrix = self.reward_function(action_str, label_str, self.confusion_matrix, 1)
@@ -98,9 +111,17 @@ class BaseTextEnvClf(gym.Env, ABC):
 
         return step_reward
     
-    # as the current state update varies on different envs, this should be overriden in subclass method
-    # returns only reward, done, info (state index is also updated)
+    @abstractmethod
     def step(self, action: int) -> Tuple[float, bool, dict]:
+        """As the current state update method varies on different envs, 
+        this should be overriden in subclass methods.
+
+        Args:
+            action (int): Action taken.
+
+        Returns:
+            Tuple[float, bool, dict]: reward, done, info (state index is also updated)
+        """
 
         step_reward = self.calculate_reward(action)
         action_str = self.action_space.ix_to_action(action)
@@ -109,7 +130,7 @@ class BaseTextEnvClf(gym.Env, ABC):
         if action_str in self.pool.possible_actions: # action_str == "good" or "bad":
             if self.current_sample_ix != None:
                 self.current_sample_ix += 1
-                self.current_sample_ix %=  self.n_sentences_in_obs
+                self.current_sample_ix %=  len(self.pool)
 
             self.current_observation = self.pool.create_episode(self.current_sample_ix)
             self.current_state_ix = 0
@@ -128,8 +149,11 @@ class BaseTextEnvClf(gym.Env, ABC):
 
         return step_reward, done, dict_ 
     
-    # here also, class params are reset but as the current state update varies on different envs, this should be overriden in subclass method
+    @abstractmethod
     def reset(self):
+        """Class params are reset but as the current state update varies on different envs, 
+        this should be overriden in subclass methods.
+        """
         if self.current_sample_ix != None:
             self.current_sample_ix = 0
 
@@ -138,12 +162,187 @@ class BaseTextEnvClf(gym.Env, ABC):
         self.time_step = 0
         self.last_reward = 0
     
+class TextEnvClfControl(BaseTextEnvClf):
+    def __init__(self, data_pool: PartialReadingDataPoolWithTokens, vocab_size: int,  max_time_steps: int,
+                 clf_model: nn.Module, stop_model: nn.Module, next_model: nn.Module,
+                 reward_fn: str = "f1", random_walk: bool = False) -> None:
+        super().__init__(data_pool, vocab_size, max_time_steps, reward_fn, random_walk)
+        self.clf_action_space = ActionSpace(copy.deepcopy(data_pool.possible_actions)) # list of class labels in data
+        self.n_action_space = ActionSpace([f"<next_{ii}>" for ii in range(max_time_steps+1)]) # action to go to next chunks (next_0: reread, next_1: read next chunk, next_2: read chunk two next, ...)
+        self.action_space = ActionSpace(["<stop>", "<continue>"]) # make a classification prediction or continue reading
+
+        self.clf_model = clf_model
+        self.stop_model = stop_model
+        self.next_model = next_model
+
+        self.current_state = self.update_current_state()
+        self.n_sentences_in_obs = len(self.current_observation.get_sample_vecs())
+        self._set_spaces()
+    
+    # create/update the current state that the agent will observe, using current observation and state index
+    def update_current_state(self) -> np.ndarray:
+        current_vecs = self.current_observation.get_sample_vecs()
+       
+        return current_vecs[self.current_state_ix].astype(int)
+    
+    def _set_spaces(self):
+       self.observation_space = spaces.Box(0, self.vocab_size, shape=(self.pool.window_size, ), dtype=int) 
+    
+    def calculate_reward(self, action: str) -> float:
+        """calculate the reward and update confusion matrix, given the action.
+
+        Args:
+            action (str): Action taken.
+
+        Returns:
+            float: Reward as a feedback for the action.
+        """
+        if action in self.action_space.actions: # <stop> or <continue>
+            return 0.
+        elif action in self.n_action_space.actions:
+            return -1. # TODO FLOP calculation here 
+        else:
+            label_str = self.action_space.ix_to_action(self.current_observation.get_label_enc().item())
+            reward, self.confusion_matrix = self.reward_function(action, label_str, self.confusion_matrix, 1)
+            step_reward = reward
+            if not isinstance(self.reward_function, PartialReadingRewardScore):
+                step_reward = reward - self.last_reward
+            self.last_reward = reward
+
+            return step_reward
+
+    def step(self, action: str) -> Tuple[np.ndarray, float, bool, dict]: 
+        if action == "<stop>":
+            # go to classifier actions
+            pass
+        elif action == "<continue>":
+            # go to next chunk reading actions
+            pass
+        elif action in self.n_action_space.actions:
+            # action = <next_n> where n is the skip size
+            self.current_state_ix += self.n_action_space.action_to_ix(action)
+            self.time_step += 1
+            
+        elif action in self.clf_action_space.actions:
+            if self.current_sample_ix != None:
+                self.current_sample_ix += 1
+                self.current_sample_ix %=  len(self.pool)
+
+            self.current_state_ix = 0
+            self.current_observation = self.pool.create_episode(self.current_sample_ix)
+            self.current_state = self.update_current_state()
+
+        label_str = self.clf_action_space.ix_to_action(self.current_observation.get_label_enc().item())
+        done = (self.time_step > self.max_time_steps)
+        step_reward = self.calculate_reward(action)
+        info = {"text": self.current_observation.get_sample_str(), "label": label_str, "action": action, "reward": step_reward}
+
+        return self.current_state, step_reward, done, info
+    
+    def reset(self) -> np.ndarray:
+        super().reset()
+        self.current_state = self.update_current_state()
+        return self.current_state_ix
+    
+
+class TextEnvClfControlForBertModels(BaseTextEnvClf):
+    def __init__(self, data_pool: PartialReadingDataPoolWithBertTokens, vocab_size: int,  max_time_steps: int,
+                 clf_model: nn.Module, stop_model: nn.Module, next_model: nn.Module,
+                 reward_fn: str = "f1", random_walk: bool = False) -> None:
+        super().__init__(data_pool, vocab_size, max_time_steps, reward_fn, random_walk)
+        self.clf_action_space = ActionSpace(copy.deepcopy(data_pool.possible_actions)) # list of class labels in data
+        self.n_action_space = ActionSpace([f"<next_{ii}>" for ii in range(max_time_steps+1)]) # action to go to next chunks (next_0: reread, next_1: read next chunk, next_2: read chunk two next, ...)
+        self.action_space = ActionSpace(["<stop>", "<continue>"]) # make a classification prediction or continue reading
+
+        self.clf_model = clf_model
+        self.stop_model = stop_model
+        self.next_model = next_model
+
+        self.current_state = self.update_current_state()
+        self.n_sentences_in_obs = len(self.current_observation.get_sample_vecs())
+        self._set_spaces()
+    
+    # create/update the current state that the agent will observe, using current observation and state index
+    def update_current_state(self):
+        current_input_id_vecs = self.current_observation.get_sample_input_id_vecs()
+        current_attn_mask_vecs = self.current_observation.get_sample_attn_mask_vecs()
+
+        self.current_label = self.current_observation.get_label_enc()
+        # self.current_state_input_id = self.current_input_id_vecs[self.current_state_ix]
+        # self.current_state_attn_mask = self.current_attn_mask_vecs[self.current_state_ix]
+        return {"input_id": current_input_id_vecs[self.current_state_ix].astype(int), 
+                "attn_mask": current_attn_mask_vecs[self.current_state_ix].astype(int)}
+    
+    def _set_spaces(self):
+        self.observation_space = spaces.Dict(
+            {
+                "input_id": spaces.Box(0, self.vocab_size, shape=(self.pool.window_size, ), dtype=int),
+                "attn_mask": spaces.Box(0, 2, shape=(self.pool.window_size, ), dtype=int) 
+            }
+        )
+    def calculate_reward(self, action: str) -> float:
+        """calculate the reward and update confusion matrix, given the action.
+
+        Args:
+            action (str): Action taken.
+
+        Returns:
+            float: Reward as a feedback for the action.
+        """
+        if action in self.action_space.actions: # <stop> or <continue>
+            return 0.
+        elif action in self.n_action_space.actions:
+            return -1. # TODO FLOP calculation here 
+        else:
+            label_str = self.action_space.ix_to_action(self.current_observation.get_label_enc().item())
+            reward, self.confusion_matrix = self.reward_function(action, label_str, self.confusion_matrix, 1)
+            step_reward = reward
+            if not isinstance(self.reward_function, PartialReadingRewardScore):
+                step_reward = reward - self.last_reward
+            self.last_reward = reward
+
+            return step_reward
+
+    def step(self, action: str) -> Tuple[np.ndarray, float, bool, dict]: 
+        if action == "<stop>":
+            # go to classifier actions
+            pass
+        elif action == "<continue>":
+            # go to next chunk reading actions
+            pass
+        elif action in self.n_action_space.actions:
+            # action = <next_n> where n is the skip size
+            self.current_state_ix += self.n_action_space.action_to_ix(action)
+            self.time_step += 1
+            
+        elif action in self.clf_action_space.actions:
+            if self.current_sample_ix != None:
+                self.current_sample_ix += 1
+                self.current_sample_ix %=  len(self.pool)
+
+            self.current_state_ix = 0
+            self.current_observation = self.pool.create_episode(self.current_sample_ix)
+            self.current_state = self.update_current_state()
+
+        label_str = self.clf_action_space.ix_to_action(self.current_observation.get_label_enc().item())
+        done = (self.time_step > self.max_time_steps)
+        step_reward = self.calculate_reward(action)
+        info = {"text": self.current_observation.get_sample_str(), "label": label_str, "action": action, "reward": step_reward}
+
+        return self.current_state, step_reward, done, info
+    
+    def reset(self) -> np.ndarray:
+        super().reset()
+        self.current_state = self.update_current_state()
+        return self.current_state_ix
+    
 
      
 
 class TextEnvClf(BaseTextEnvClf):
     
-    def __init__(self, data_pool: PartialReadingDataPoolWithTokens, vocab_size: int, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False):
+    def __init__(self, data_pool: PartialReadingDataPoolWithTokens, vocab_size: int, max_time_steps: int, 
+                 reward_fn: str = "f1", random_walk: bool = False):
         """Constructor for basic tokenized text environment for classification. 
 
         Args:
@@ -193,7 +392,8 @@ class TextEnvClf(BaseTextEnvClf):
 
 class TextEnvClfWithBertTokens(BaseTextEnvClf):
     
-    def __init__(self, data_pool: PartialReadingDataPool, vocab_size: int, max_time_steps: int, reward_fn: str = "f1", random_walk: bool = False):
+    def __init__(self, data_pool: PartialReadingDataPool, vocab_size: int, max_time_steps: int, 
+                 reward_fn: str = "f1", max_skip_steps: int = 3, random_walk: bool = False):
         """Constructor for pretrained BERT tokenized text environment (only tokens) for classification. 
 
             Args:
