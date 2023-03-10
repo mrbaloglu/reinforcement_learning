@@ -132,7 +132,7 @@ class PartialReadingRewardScore(PartialReadingReward):
             
             return tmp, confusion_matrix
         else:
-            return 0.005 * 10**exploration_discount, confusion_matrix
+            return 0 # 0.005 * 10**exploration_discount, confusion_matrix
 
 class PartialReadingRewardCertainity(PartialReadingReward):
     def __call__(self, action: str, target: str, confusion_matrix: np.ndarray, exploration_discount: float = 0) -> float:

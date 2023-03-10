@@ -68,7 +68,9 @@ if __name__ == "__main__":
     device = th.device("cuda" if th.cuda.is_available() else "cpu")
     print(f"Running on device: {device}")
     data = nlp_processing.openDfFromPickle("NLP_datasets/ag_news/ag_news_train_distilbert-base-uncased.pkl")
-    pool = PartialReadingDataPoolWithBertTokens(data, "text", "label", 512, 50, mask = True)
+
+    pool = PartialReadingDataPoolWithBertTokens(data, "text", "label", 400, 20, mask = True)
+
     print(pool.possible_actions)
     env = TextEnvClfControlForBertModels(pool, 30522, int(1e+5), reward_fn="score", random_walk=True)
 
@@ -77,20 +79,29 @@ if __name__ == "__main__":
     print(env.n_action_space.actions, env.n_action_space._ix_to_action)
     print("="*40)
 
-    extractor = a2c_utils.BertFeatureExtractor()
 
-    clf_policy = a2c_utils.DenseActorCriticPolicy(38400, len(env.clf_action_space.actions))
-    stop_policy = a2c_utils.DenseActorCriticPolicy(38400, 2)
-    next_policy = a2c_utils.DenseActorCriticPolicy(38400, len(env.n_action_space.actions))
+    MAX_CHUNK_LEN = env.pool.window_size
+    print(f"Maximum length in chunks is {MAX_CHUNK_LEN}")
 
-    clf_optimizer = Adam(list(clf_policy.parameters()) + list(stop_policy.parameters()))
-    next_optimizer = Adam(list(next_policy.parameters()) + list(stop_policy.parameters()))
+    extractor = a2c_utils.BertFeatureExtractor(max_len=MAX_CHUNK_LEN)
+
+    extractor_out_dim = extractor.out_dim
+
+    clf_policy = a2c_utils.DenseActorCriticPolicy(extractor_out_dim, len(env.clf_action_space.actions))
+    stop_policy = a2c_utils.DenseActorCriticPolicy(extractor_out_dim, 2)
+    next_policy = a2c_utils.DenseActorCriticPolicy(extractor_out_dim, len(env.n_action_space.actions))
+
+    clf_optimizer = Adam(list(clf_policy.parameters()) + list(stop_policy.parameters()), lr=0.001)
+    next_optimizer = Adam(list(next_policy.parameters()) + list(stop_policy.parameters()), lr=0.001)
+
     stop_optimizer = Adam(stop_policy.parameters())
     a2c = a2c_utils.ActorCriticAlgorithmControlBertModel(stop_policy, clf_policy, next_policy, extractor,
                          env, stop_optimizer, clf_optimizer, next_optimizer, device=device, gamma=1.)
     
-    for _ in range(1):
-        a2c.train_a2c(500, 50, log_interval=2)
+
+    for _ in range(500):
+        a2c.train_a2c(2, 20, log_interval=2)
+
         a2c.device = th.device("cpu")
         a2c.eval_model(env)
         a2c.device = th.device("cuda" if th.cuda.is_available() else "cpu")

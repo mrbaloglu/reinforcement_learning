@@ -97,7 +97,10 @@ class PartialReadingDataPoolWithTokens(PartialReadingDataPool):
         
         vecs = np.stack(data[text_col + "_tokenized"].copy().values).astype(np.int32)
         self.n_samples = len(vecs)
-        pad_size = self.window_size - (self.max_len % self.window_size)
+        pad_size = self.window_size - (self.max_len % self.window_size) if self.max_len % self.window_size != 0 else 0
+
+        if self.max_len < vecs.shape[1]: # truncation
+            vecs = vecs[:, :self.max_len]
 
         if pad_size > 0:
             pad_m = np.zeros((self.n_samples, pad_size))
@@ -162,13 +165,22 @@ class PartialReadingDataPoolWithBertTokens(PartialReadingDataPool):
         
 
         input_id_vecs = np.stack(data[text_col + "_bert_input_ids"].copy().values).astype(np.int32)
+        
+        if self.max_len < input_id_vecs.shape[1]: # truncation
+            input_id_vecs = input_id_vecs[:, :self.max_len]
+
         attn_mask_vecs = None
         if self.mask:
             attn_mask_vecs = np.stack(data[text_col + "_bert_attention_mask"].copy().values).astype(np.int32)
+            if self.max_len < attn_mask_vecs.shape[1]: # truncation
+                attn_mask_vecs = attn_mask_vecs[:, :self.max_len]
+            
+            print(f"attn mask: {attn_mask_vecs.shape}")
         
         self.n_samples = len(input_id_vecs)
-        pad_size = self.window_size - (self.max_len % self.window_size)
-       
+        pad_size = self.window_size - (self.max_len % self.window_size) if self.max_len % self.window_size != 0 else 0
+        print(f"Pad size: {pad_size}, window size: {self.window_size}, ")
+        print("__________->", input_id_vecs.shape)
         if pad_size > 0:
             pad_m = np.zeros((self.n_samples, pad_size))
             input_id_vecs = np.concatenate((input_id_vecs, pad_m), axis=1)
@@ -220,7 +232,7 @@ class SimpleSequentialDataPool:
         self.ix_to_str = {0: "neg", 1: "pos"}
         self.max_len = n_features
         
-        pad_size = self.window_size - (self.max_len % self.window_size)
+        pad_size = self.window_size - (self.max_len % self.window_size) if self.max_len % self.window_size != 0 else 0
        
         if pad_size > 0:
             pad_m = np.zeros((self.n_samples, pad_size))
@@ -270,7 +282,7 @@ if __name__ == "__main__":
     data_train = nlp_processing.openDfFromPickle("NLP_datasets/dbpedia_14/dbpedia_14_train_distilbert-base-uncased.pkl")
     print(data_train.head())
 
-    pool = PartialReadingDataPoolWithBertTokens(data_train, "text", "label", 512, 11, mask=True)
+    pool = PartialReadingDataPoolWithBertTokens(data_train, "text", "label", 400, 20, mask=True)
     ix = np.random.randint(len(pool))
     obs = pool.create_episode(ix)
     print(obs)
