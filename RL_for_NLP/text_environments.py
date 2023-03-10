@@ -247,19 +247,14 @@ class TextEnvClfControl(BaseTextEnvClf):
 
 class TextEnvClfControlForBertModels(BaseTextEnvClf):
     def __init__(self, data_pool: PartialReadingDataPoolWithBertTokens, vocab_size: int,  max_time_steps: int,
-                 clf_model: nn.Module, stop_model: nn.Module, next_model: nn.Module,
-                 reward_fn: str = "f1", random_walk: bool = False) -> None:
+                 max_skip_steps: int = 3, reward_fn: str = "f1", random_walk: bool = False) -> None:
         super().__init__(data_pool, vocab_size, max_time_steps, reward_fn, random_walk)
         self.clf_action_space = ActionSpace(copy.deepcopy(data_pool.possible_actions)) # list of class labels in data
-        self.n_action_space = ActionSpace([f"<next_{ii}>" for ii in range(max_time_steps+1)]) # action to go to next chunks (next_0: reread, next_1: read next chunk, next_2: read chunk two next, ...)
+        self.n_action_space = ActionSpace([f"<next_{ii}>" for ii in range(max_skip_steps+1)]) # action to go to next chunks (next_0: reread, next_1: read next chunk, next_2: read chunk two next, ...)
         self.action_space = ActionSpace(["<stop>", "<continue>"]) # make a classification prediction or continue reading
 
-        self.clf_model = clf_model
-        self.stop_model = stop_model
-        self.next_model = next_model
-
         self.current_state = self.update_current_state()
-        self.n_sentences_in_obs = len(self.current_observation.get_sample_vecs())
+        self.n_sentences_in_obs = len(self.current_observation.get_sample_input_id_vecs())
         self._set_spaces()
     
     # create/update the current state that the agent will observe, using current observation and state index
@@ -293,8 +288,8 @@ class TextEnvClfControlForBertModels(BaseTextEnvClf):
             return 0.
         elif action in self.n_action_space.actions:
             return -1. # TODO FLOP calculation here 
-        else:
-            label_str = self.action_space.ix_to_action(self.current_observation.get_label_enc().item())
+        elif action in self.clf_action_space.actions:
+            label_str = self.clf_action_space.ix_to_action(self.current_observation.get_label_enc().item())
             reward, self.confusion_matrix = self.reward_function(action, label_str, self.confusion_matrix, 1)
             step_reward = reward
             if not isinstance(self.reward_function, PartialReadingRewardScore):
@@ -302,8 +297,13 @@ class TextEnvClfControlForBertModels(BaseTextEnvClf):
             self.last_reward = reward
 
             return step_reward
+        else:
+            raise ValueError(f"Expected a correct action, got {action}")
 
     def step(self, action: str) -> Tuple[np.ndarray, float, bool, dict]: 
+        assert (action in self.clf_action_space.actions) or (action in self.n_action_space.actions) or (action in self.action_space.actions), \
+            f"Action must be in {self.clf_action_space.actions} or {self.n_action_space.actions} or {self.action_space.actions} got {action}."
+        
         if action == "<stop>":
             # go to classifier actions
             pass
@@ -334,7 +334,7 @@ class TextEnvClfControlForBertModels(BaseTextEnvClf):
     def reset(self) -> np.ndarray:
         super().reset()
         self.current_state = self.update_current_state()
-        return self.current_state_ix
+        return self.current_state
     
 
      
@@ -648,8 +648,12 @@ if __name__ == "__main__":
     data = nlp_preprocessing.openDfFromPickle("NLP_datasets/ag_news/ag_news_train_distilbert-base-uncased.pkl")
 
     pool = PartialReadingDataPoolWithBertTokens(data, "text", "label", 512, 50, mask = True)
-    env = TextEnvClfForBertModels(pool, 28996, int(1e+5), "score", True)
-    check_env(env)
+    env = TextEnvClfControlForBertModels(pool, 30522, 100_000, reward_fn="score")
+    print("="*35)
+    print(env.reset())
+    print(f"Stop actions: {env.action_space}, \n Clf actions: {env.clf_action_space}, \n Next actions: {env.n_action_space}")
+    
+    # check_env(env)
     print(env.current_observation)
     print(env.current_state)
     print("="*40)
@@ -657,10 +661,10 @@ if __name__ == "__main__":
     print("="*40)
     
     print("="*40)
-    print(env.step(0))
-    print(env.step(0))
+    print(env.step("<continue>"))
+    print(env.step("<stop>"))
     print(env.current_state)
     print("="*40)
-    print(env.step(2))
+    print(env.step("next_2"))
 
     
