@@ -287,7 +287,7 @@ class TextEnvClfControlForBertModels(BaseTextEnvClf):
         if action in self.action_space.actions: # <stop> or <continue>
             return 0.
         elif action in self.n_action_space.actions:
-            return -1. # TODO FLOP calculation here 
+            return -0.01 # TODO FLOP calculation here 
         elif action in self.clf_action_space.actions:
             label_str = self.clf_action_space.ix_to_action(self.current_observation.get_label_enc().item())
             reward, self.confusion_matrix = self.reward_function(action, label_str, self.confusion_matrix, 1)

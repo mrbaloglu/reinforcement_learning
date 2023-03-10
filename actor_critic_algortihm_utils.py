@@ -136,7 +136,7 @@ class DistibertActorCriticPolicy(ActorCriticPolicy):
         return self"""
 
 class BertFeatureExtractor(nn.Module):
-    def __init__(self, bert_model = None, freeze = True):
+    def __init__(self, max_len: int = 512, bert_model = None, freeze = True):
         super().__init__()
         
         if bert_model == None:
@@ -148,6 +148,17 @@ class BertFeatureExtractor(nn.Module):
             self.bert.requires_grad = True
         
         self.flatten = nn.Flatten()
+        self.out_dim = 0
+
+        dummy_input_id = th.randint(1, 4, (3, max_len)).long()
+        dummy_mask = th.ones_like(dummy_input_id).long()
+        with th.no_grad():
+            dummy_out = self.bert(dummy_input_id, dummy_mask).last_hidden_state
+            dummy_out = self.flatten(dummy_out)
+        
+        self.out_dim = dummy_out.shape[-1]
+
+        del dummy_input_id, dummy_mask, dummy_out
         
         
 
@@ -597,6 +608,7 @@ class ActorCriticAlgorithmControlBertModel:
         self.stop_policy.to(self.device)
         self.next_policy.to(self.device)
         self.clf_policy.to(self.device)
+        state = self.env.reset()
         running_reward = 0.
         last_reward = 0
         # run infinitely many episodes / number of episodes selected
@@ -605,7 +617,7 @@ class ActorCriticAlgorithmControlBertModel:
             stats = calculate_stats_from_cm(self.env.confusion_matrix)
             pbar.set_description(f"Accuracy: {stats['accuracy']:.2f}, Precision: {stats['precision']:.2f}, Recall: {stats['recall']:.2f}, F1: {stats['f1']:.2f}, Average reward: {last_reward:.3f} (updated every {log_interval} episodes)")
             # reset environment and episode reward
-            state = self.env.reset()
+            
             ep_reward = 0
             info = None
             # for each episode, only run 9999 steps so that we don't
@@ -634,7 +646,7 @@ class ActorCriticAlgorithmControlBertModel:
                     break
 
             # update cumulative reward
-            running_reward = 0.05 * ep_reward + (1 - 0.05) * running_reward
+            running_reward += ep_reward
 
             
             # perform backprop
@@ -642,8 +654,8 @@ class ActorCriticAlgorithmControlBertModel:
             th.cuda.empty_cache()
             # log results
             if i_episode % log_interval == 0:
-                # print(f'Episode {i_episode}\tLast reward: {ep_reward:.2f}\tAverage reward: {running_reward:.2f}')
-                last_reward = ep_reward
+                last_reward = running_reward / log_interval
+                running_reward = 0.
             
             # print(f"Observe: {_}")
 
@@ -673,11 +685,11 @@ class ActorCriticAlgorithmControlBertModel:
             if done:
                 obs = env.reset()
         
-            del self.policy.rewards[:]
-            del self.policy.saved_actions[:]
-            actions.append(action)
+            del self.stop_policy.rewards[:], self.clf_policy.rewards[:], self.next_policy.rewards[:]
+            del self.stop_policy.saved_actions[:], self.clf_policy.saved_actions[:], self.next_policy.saved_actions[:]
+            actions.append(action_str)
             total_reward += rewards
-            del rewards, done, info, action
+            del rewards, done, action
       
         print("---------------------------------------------");
         print(f"Total Steps and seen samples: {len(actions), seen_samples}")
