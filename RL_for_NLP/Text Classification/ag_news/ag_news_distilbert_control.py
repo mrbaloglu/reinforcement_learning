@@ -57,6 +57,7 @@ import json
 from collections import Counter
 from tqdm import tqdm
 from tqdm.notebook import tqdm
+import mlflow
 
 if __name__ == "__main__":
 
@@ -91,20 +92,30 @@ if __name__ == "__main__":
     stop_policy = a2c_utils.DenseActorCriticPolicy(extractor_out_dim, 2)
     next_policy = a2c_utils.DenseActorCriticPolicy(extractor_out_dim, len(env.n_action_space.actions))
 
-    clf_optimizer = Adam(list(clf_policy.parameters()) + list(stop_policy.parameters()), lr=0.001)
-    next_optimizer = Adam(list(next_policy.parameters()) + list(stop_policy.parameters()), lr=0.001)
+    clf_optimizer = Adam(list(clf_policy.parameters()) + list(stop_policy.parameters()), lr=0.001, weight_decay=0.01)
+    next_optimizer = Adam(list(next_policy.parameters()) + list(stop_policy.parameters()), lr=0.001, weight_decay=0.01)
 
     stop_optimizer = Adam(stop_policy.parameters())
     a2c = a2c_utils.ActorCriticAlgorithmControlBertModel(stop_policy, clf_policy, next_policy, extractor,
                          env, stop_optimizer, clf_optimizer, next_optimizer, device=device, gamma=1.)
     
+    stats = None
+    mlflow.set_experiment("actor-critic-w-distilbert-extractor")
+    mlflow.start_run()
+    for _ in range(20):
+        th.cuda.empty_cache()
+        a2c.train_a2c(200, 50, log_interval=5)
 
-    for _ in range(500):
-        a2c.train_a2c(2, 20, log_interval=2)
+        # a2c.device = th.device("cpu")
+        stats, reward = a2c.eval_model(env)
+        # a2c.device = th.device("cuda" if th.cuda.is_available() else "cpu")
+        mlflow.log_metric("accuracy", stats["accuracy"])
+        mlflow.log_metric("f1", stats["f1"])
+        mlflow.log_metric("reward", reward)
 
-        a2c.device = th.device("cpu")
-        a2c.eval_model(env)
-        a2c.device = th.device("cuda" if th.cuda.is_available() else "cpu")
-    
-    # th.save(a2c.policy, "a2c_distilbert_on_" + str(datetime.now()) + ".pth")
-    
+
+    mlflow.pytorch.log_model(a2c.clf_policy, "a2c_distilbert_clf.pth")
+    mlflow.pytorch.log_model(a2c.stop_policy, "a2c_distilbert_stop.pth")
+    mlflow.pytorch.log_model(a2c.next_policy, "a2c_distilbert_next.pth")
+    mlflow.end_run()
+    # TODO TODO memory leak cuda + nan outputs problem
