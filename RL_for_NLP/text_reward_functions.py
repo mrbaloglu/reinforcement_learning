@@ -26,10 +26,10 @@ def calculate_stats_from_cm(confusion_matrix: np.ndarray, macro_avg: bool = True
                 f1s[j] = 2*precisions[j]*recalls[j] / (precisions[j]+recalls[j])
 
             
-        macro_f1 = np.average(f1s)
-        macro_precision = np.average(precisions)
-        macro_recall = np.average(recalls)
-        accuracy = np.sum(np.diagonal(confusion_matrix)) / np.sum(confusion_matrix)
+        macro_f1 = np.average(f1s) # if sum(f1s) > 0 else 0.
+        macro_precision = np.average(precisions) # if sum(precisions) > 0 else 0.
+        macro_recall = np.average(recalls) # if sum(recalls) > 0 else 0.
+        accuracy = np.sum(np.diagonal(confusion_matrix)) / np.sum(confusion_matrix) # if np.sum(confusion_matrix) > 0 else 0.
 
         return {"accuracy": accuracy, "precision": macro_precision, "recall": macro_recall, "f1": macro_f1}
     else: 
@@ -127,8 +127,8 @@ class PartialReadingRewardScore(PartialReadingReward):
         if action in self.label_list:
             confusion_matrix = super().update_cm(action, target, confusion_matrix)
             tmp = int(action == target)
-            if tmp == 0:
-                tmp = -1.25
+            # if tmp == 0:
+            #     tmp = -0.25
             
             return tmp, confusion_matrix
         else:

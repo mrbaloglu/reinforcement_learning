@@ -70,7 +70,7 @@ if __name__ == "__main__":
     print(f"Running on device: {device}")
     data = nlp_processing.openDfFromPickle("NLP_datasets/ag_news/ag_news_train_distilbert-base-uncased.pkl")
 
-    pool = PartialReadingDataPoolWithBertTokens(data, "text", "label", 400, 20, mask = True)
+    pool = PartialReadingDataPoolWithBertTokens(data, "text", "label", 200, 20, mask = True)
 
     print(pool.possible_actions)
     env = TextEnvClfControlForBertModels(pool, 30522, int(1e+5), reward_fn="score", random_walk=True)
@@ -82,29 +82,34 @@ if __name__ == "__main__":
 
 
     MAX_CHUNK_LEN = env.pool.window_size
+    FREEZE_EXTRACTOR = True
     print(f"Maximum length in chunks is {MAX_CHUNK_LEN}")
 
-    extractor = a2c_utils.BertFeatureExtractor(max_len=MAX_CHUNK_LEN)
+    extractor = a2c_utils.BertFeatureExtractor(max_len=MAX_CHUNK_LEN, freeze=FREEZE_EXTRACTOR)
 
     extractor_out_dim = extractor.out_dim
 
-    clf_policy = a2c_utils.DenseActorCriticPolicy(extractor_out_dim, len(env.clf_action_space.actions))
-    stop_policy = a2c_utils.DenseActorCriticPolicy(extractor_out_dim, 2)
-    next_policy = a2c_utils.DenseActorCriticPolicy(extractor_out_dim, len(env.n_action_space.actions))
+    clf_policy = a2c_utils.DenseActorCriticPolicy(extractor_out_dim, len(env.clf_action_space.actions), hidden_dim=10)
+    stop_policy = a2c_utils.DenseActorCriticPolicy(extractor_out_dim, 2, hidden_dim=10)
+    next_policy = a2c_utils.DenseActorCriticPolicy(extractor_out_dim, len(env.n_action_space.actions), hidden_dim=10)
+    if FREEZE_EXTRACTOR:
+        clf_optimizer = Adam(list(clf_policy.parameters()) + list(stop_policy.parameters()), lr=0.01, weight_decay=0.01)
+        next_optimizer = Adam(list(next_policy.parameters()) + list(stop_policy.parameters()), lr=0.01, weight_decay=0.01)
+    else:
+        clf_optimizer = Adam(list(clf_policy.parameters()) + list(stop_policy.parameters()), lr=0.01, weight_decay=0.01)
+        next_optimizer = Adam(list(extractor.parameters()) + list(next_policy.parameters()) + list(stop_policy.parameters()), lr=0.01, weight_decay=0.01)
 
-    clf_optimizer = Adam(list(clf_policy.parameters()) + list(stop_policy.parameters()), lr=0.001, weight_decay=0.01)
-    next_optimizer = Adam(list(next_policy.parameters()) + list(stop_policy.parameters()), lr=0.001, weight_decay=0.01)
-
-    stop_optimizer = Adam(stop_policy.parameters())
+    
     a2c = a2c_utils.ActorCriticAlgorithmControlBertModel(stop_policy, clf_policy, next_policy, extractor,
-                         env, stop_optimizer, clf_optimizer, next_optimizer, device=device, gamma=1.)
+                         env, clf_optimizer, next_optimizer, device=device, gamma=1.)
     
     stats = None
     mlflow.set_experiment("actor-critic-w-distilbert-extractor")
     mlflow.start_run()
-    for _ in range(20):
+    # th.autograd.set_detect_anomaly(True)
+    for _ in range(15):
         th.cuda.empty_cache()
-        a2c.train_a2c(200, 50, log_interval=5)
+        a2c.train_a2c(50, 100, log_interval=4)
 
         # a2c.device = th.device("cpu")
         stats, reward = a2c.eval_model(env)

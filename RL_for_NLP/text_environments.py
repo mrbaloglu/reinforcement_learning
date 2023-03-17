@@ -81,6 +81,7 @@ class BaseTextEnvClf(gym.Env, ABC):
 
         self.current_state_ix = 0
         self.last_reward = 0
+        self.taken_actions = []
 
     
     @abstractmethod 
@@ -252,7 +253,7 @@ class TextEnvClfControlForBertModels(BaseTextEnvClf):
         self.clf_action_space = ActionSpace(copy.deepcopy(data_pool.possible_actions)) # list of class labels in data
         self.n_action_space = ActionSpace([f"<next_{ii}>" for ii in range(max_skip_steps+1)]) # action to go to next chunks (next_0: reread, next_1: read next chunk, next_2: read chunk two next, ...)
         self.action_space = ActionSpace(["<stop>", "<continue>"]) # make a classification prediction or continue reading
-
+        self.reward_function = PartialReadingRewardScore(self.clf_action_space.actions)
         self.current_state = self.update_current_state()
         self.n_sentences_in_obs = len(self.current_observation.get_sample_input_id_vecs())
         self._set_spaces()
@@ -288,11 +289,12 @@ class TextEnvClfControlForBertModels(BaseTextEnvClf):
             return 0.
         elif action in self.n_action_space.actions:
 
-            return -0.01 # TODO FLOP calculation here 
+            return -0.001 # TODO FLOP calculation here 
 
         elif action in self.clf_action_space.actions:
             label_str = self.clf_action_space.ix_to_action(self.current_observation.get_label_enc().item())
             reward, self.confusion_matrix = self.reward_function(action, label_str, self.confusion_matrix, 1)
+            
             step_reward = reward
             if not isinstance(self.reward_function, PartialReadingRewardScore):
                 step_reward = reward - self.last_reward
@@ -331,6 +333,7 @@ class TextEnvClfControlForBertModels(BaseTextEnvClf):
         step_reward = self.calculate_reward(action)
         info = {"text": self.current_observation.get_sample_str(), "label": label_str, "action": action, "reward": step_reward}
 
+        self.taken_actions.append(action)
         return self.current_state, step_reward, done, info
     
     def reset(self) -> np.ndarray:
